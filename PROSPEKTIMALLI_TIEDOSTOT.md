@@ -117,20 +117,6 @@ Y-tunnukset normalisoidaan muotoon `1234567-8`. Yritykset deduplikoidaan Y-tunnu
 
 ## 6. Malliajo
 
-### Nykyasiakkaiden 12 kuukauden potentiaali ja tuotepohjaiset suositukset
-
-Uusi ajuri `prospektointi/run_innoflame_potential_model.py` muodostaa asiakaskohtaisen seuraavan 12 kuukauden potentiaalin ja tuotetason suositukset. Se käyttää kuukausitason myyntisyötettä asiakasmyynnin laskentaan, tuotetason `Innoflame_merged_sales.csv`-historiaa suosituksiin ja tuotemasteria tuoteryhmien täydennykseen.
-
-```powershell
-python prospektointi\run_innoflame_potential_model.py `
-  --sales-summary "prospektointi\sales_import_test\GoSystems_sales_26_05_2026_model_input_corrected.csv" `
-  --product-sales "Innoflame_merged_sales.csv" `
-  --product-master "C:\Users\TommiHavukainen\Downloads\INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx" `
-  --output-dir "outputs\current_customer_potential"
-```
-
-Ajuri täydentää puuttuvat tuoteryhmät ProductCode-avaimella ennen suosituksia, poistaa kuljetus-, pakkaus- ja kustannustuotteet suositusjoukosta sekä sallii uudet tuotteet vain `IF`- ja `DIF`-alkuisilla koodeilla. Tulosteisiin kuuluvat `customer_scoreboard.csv`, `top_100_customers.csv`, `product_recommendations.csv`, `data_quality.csv`, `portfolio_summary.csv` ja `innoflame_potential_model.xlsx`.
-
 Varsinainen malli ajetaan `prospektointi/prospect_model.py`-tiedostolla.
 
 Täysi ajo:
