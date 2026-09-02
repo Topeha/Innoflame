@@ -33,6 +33,14 @@ Uusinta-ajossa oli 1 956 prospektia. Kokonaispotentiaali oli 41,86 M€ ja Top 1
 
 ## Nopein aloitus
 
+Nykyasiakkaiden 12 kuukauden potentiaali ja tuotekohtaiset suositukset ajetaan näin:
+
+```powershell
+python prospektointi\run_innoflame_potential_model.py
+```
+
+Oletusajo käyttää projektin kuukausitason myyntisyötettä, `Innoflame_merged_sales.csv`-tuotetason historiaa ja Downloads-kansiossa olevaa tuotemasteria. Tulokset kirjoitetaan kansioon `outputs/current_customer_potential`.
+
 Lue ensin tekninen kuvaus ja sen jälkeen myynnin koulutusmateriaali. Mallin ajo tehdään aina projektin juuresta ja syöttöpolut annetaan eksplisiittisesti:
 
 ```powershell
