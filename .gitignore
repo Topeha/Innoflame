@@ -1,0 +1,41 @@
+# Local tooling and generated work files
+.cache/
+.codex_work/
+.deck_work/
+node_modules/
+__pycache__/
+*.py[cod]
+*.inspect.ndjson
+**/.deps/
+**/deps_xlrd/
+**/pptx_qa/
+
+# Generated outputs and temporary workspaces
+outputs/
+share_package/
+validation_audit_outputs*/
+model_improvement_backtest_2025/
+Innoflame_prospektimalli_uusinta_vertailu/
+*.tmp
+~$*
+
+# Project data and binary source material
+*.csv
+*.json
+*.json.gz
+*.xlsx
+*.xls
+*.zip
+*.tar.gz
+*.backup*
+*.pptx
+*.pdf
+*.jpg
+*.jpeg
+*.png
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+config.yaml
+secrets.*

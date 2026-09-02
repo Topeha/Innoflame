@@ -1,0 +1,118 @@
+# TODO: Vaihda alla olevat taulunimet oikeisiin BigQuery-tauluihin tai tiedostopolkuhin.
+runtime:
+  gcp_project: your-gcp-project
+  gcp_location: europe-north1
+  log_level: INFO
+  artifact_dir: artifacts
+
+sources:
+  companies:
+    type: bigquery
+    table: your_project.your_dataset.profinder_companies
+    query:
+  sales:
+    type: bigquery
+    table: your_project.your_dataset.sales_history
+    query:
+  accounts:
+    type: excel
+    path: Account_20.05.2026_active.xlsx
+    table:
+    query:
+  accounts_direct_delivery:
+    type: excel
+    path: Account_20.05.2026_direct_delivery.xlsx
+    table:
+    query:
+  accounts_gokeep_plus:
+    type: excel
+    path: Account_20.05.2026_Gokeep+.xlsx
+    table:
+    query:
+
+columns:
+  # TODO: Tarkista tunnistesarakkeiden nimet.
+  business_id: business_id
+  customer_id: customer_id
+  # TODO: Tama sarake tulee customer-joinista. Vain Active ja Gokeep+ koulutetaan malliin.
+  customer_status: customer_status
+  account_business_id: Business ID
+  account_status: status
+  order_date: order_date
+  # Suosittelun tuoteavain. Jos sarake puuttuu tai on tyhja, pipeline rakentaa sen fallbackilla:
+  # productcode -> name+category -> reference+category.
+  product: product_service
+  net_sales: net_sales
+  net_sales_fallbacks:
+    - sales
+  margin: margin
+  sales_status: status
+  product_group_l3_code: product_group_l3_code
+  product_group_match_method: product_group_match_method
+  productcode: productcode
+  name: name
+  category: category
+  reference: reference
+
+features:
+  # TODO: Paivita numeriset yritysfeaturet oikeiden sarakkeiden mukaan.
+  numeric_company:
+    - revenue
+    - headcount
+    - growth
+  # TODO: Paivita kategoriset yritysfeaturet oikeiden sarakkeiden mukaan.
+  categorical_company:
+    - industry
+    - location
+  extra_company:
+    - municipality
+
+training:
+  as_of_date:
+  lookback_days: 365
+  snapshot_frequency: M
+  test_fraction: 0.2
+  model_type: logistic_regression
+  calibration_method: sigmoid
+  random_state: 42
+  max_iter: 1000
+  eligible_customer_statuses:
+    - Active
+    - Gokeep+
+  # TODO: Alle taman vuosimyynnin asiakkaat eivat opeta Innoflamen mallia.
+  min_training_customer_annual_sales_eur: 4000.0
+  default_account_status: Active
+  direct_delivery_status: direct_delivery
+  gokeep_plus_status: Gokeep+
+  # Prospektimallin myyntihistoria rakennetaan ensisijaisesti laskutetuista riveista.
+  invoice_statuses:
+    - Invoiced
+  # Ei-tuotemaiset toimitus-, kasittely-, tulli- ja verokulut rajataan pois tuotesuosittelusta.
+  excluded_product_group_l3_codes:
+    - 15.01.01
+
+potential:
+  # TODO: Alle taman arvion jaavat prospectit eivat paady Innoflamen listalle.
+  min_annual_potential_eur: 4000.0
+  c_min_annual_potential_eur: 10000.0
+  b_min_annual_potential_eur: 50000.0
+  a_min_annual_potential_eur: 100000.0
+  below_c_label: Below C
+  partner_label: Partner
+
+recommendations:
+  top_k_neighbors: 10
+  max_recommendations: 5
+  min_rule_support: 2
+  min_rule_confidence: 0.05
+  min_rule_lift: 1.0
+  neighbor_weight: 0.7
+  rule_weight: 0.3
+
+output:
+  mode: csv
+  # TODO: Vaihda BigQuery-outputta varten oikea taulu.
+  bigquery_table: your_project.your_dataset.prospect_scores
+  # TODO: CSV voi olla paikallinen polku tai gs://bucket/path.csv
+  csv_uri: output/prospect_scores.csv
+  write_disposition: WRITE_TRUNCATE

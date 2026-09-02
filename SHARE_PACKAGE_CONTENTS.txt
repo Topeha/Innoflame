@@ -1,0 +1,25 @@
+Included in share package:
+- prospect_pipeline.py
+- prospect_ml/
+- requirements.txt
+- config.example.yaml
+- CSV_DATA_DESCRIPTIONS.md
+- TRAINING_DATA_REQUIREMENTS.md
+- templates/
+- Prospecting-ML-Project-Overview.pptx
+- SHARE_PACKAGE_README.md
+- REVIEW_REQUEST_TEMPLATE.md
+
+Excluded from share package:
+- .git/
+- .deck_work/
+- __pycache__/
+- companies.csv
+- companies_missing_headcount.csv
+- haku_AsiakkaatProfinderAjo4_2026-03-18 (1).xlsx
+- products.json
+- Myynnin pelikirja (1).zip
+- Myynnin pelikirja (1)/
+- Potentiaalisten asiakkuuksien tunnistaminen Keep ja Suorakauppa.pptx
+- HAVUKAINEN 20260518145832 Lowell.pdf
+- artifact-build-manifest.json
