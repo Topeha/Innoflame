@@ -29,6 +29,7 @@ EXCLUSION_PATH = POTENTIAL_DIR / "Netvisor asiakastiedot 6-2026.xlsx"
 MODEL_PATH = ROOT / "prospektointi" / "prospect_model.py"
 V3_PATH = ROOT / "two_stage_potential_model" / "v3_recent_weighted_current_model" / "innoflame_all_accounts_model_v3.py"
 RUNNER_PATH = ROOT / "prospektointi" / "run_current_customer_potential.py"
+GO_KEEP_COMPLETED_STATUSES = {"processed", "archived", "ready to archive"}
 
 EXCLUDED_PRODUCT_TERMS = (
     "kustannus", "cost", "freight", "delivery", "transport", "shipping",
@@ -68,8 +69,12 @@ def prepare_sales(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     frame["status_clean"] = frame["status"].astype("string").str.strip()
     if "productcode" in frame.columns and "sku" not in frame.columns:
         frame["sku"] = frame["productcode"]
+    is_gosales = frame["source_file"].astype("string").str.casefold().str.contains("gosales", na=False) if "source_file" in frame.columns else pd.Series(True, index=frame.index)
+    is_gokeep = frame["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False) if "source_file" in frame.columns else pd.Series(False, index=frame.index)
+    completed_sale = frame["status_clean"].str.casefold().eq("invoiced") & is_gosales
+    completed_gokeep = frame["status_clean"].str.casefold().isin(GO_KEEP_COMPLETED_STATUSES) & is_gokeep
     included = frame.loc[
-        frame["status_clean"].str.casefold().eq("invoiced")
+        (completed_sale | completed_gokeep)
         & frame["account_id"].notna()
         & frame["created_at_dt"].notna()
     ].copy()
@@ -397,6 +402,8 @@ def main() -> None:
     product_quality = pd.concat([master_quality, product_quality, pd.DataFrame([
         {"metric": "source_sales_rows", "value": len(raw_sales)},
         {"metric": "included_invoiced_sales_rows", "value": len(sales)},
+        {"metric": "included_gokeep_sales_rows", "value": int(sales["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False).sum())},
+        {"metric": "included_gokeep_sales_eur", "value": float(sales.loc[sales["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False), "total_value"].sum())},
         {"metric": "product_group_level_columns_detected", "value": json.dumps(group_columns, ensure_ascii=True)},
         {"metric": "crm_rows_matched_to_business_id", "value": int(crm_features["business_id"].notna().sum())},
         {"metric": "crm_rows_matched_to_model", "value": int(matched_features["_has_model_score"].sum())},
