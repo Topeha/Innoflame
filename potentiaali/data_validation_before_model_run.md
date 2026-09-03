@@ -13,12 +13,12 @@ Raportti on muodostettu ennen malliajoa. Data-aineistoja ei muokata tässä tark
 - Rivejä: **857,774**
 - Sarakkeet: `source_file, id, status, category, productcode, optioncode, name, sales, amount, order, reference, sold_at, accountid, totalprice`
 - Invoiced-rivejä: **61,869**
-- Hylättävät/puuttuvat päivät: **511,729**
+- Hylättävät/puuttuvat päivät: **0**
 - Hylättävät/puuttuvat account_id:t: **0**
 - Puuttuvat tai virheelliset price/amount-arvot: **0**
 - Nolla- tai negatiiviset riviarvot: **84,491**
 - Invoiced-rivien nolla- tai negatiiviset arvot: **3,941**
-- Aikaväli: **2023-01-01 00:00:00+00:00 - 2026-12-07 00:00:00+00:00**
+- Aikaväli: **2023-01-01 00:00:00+00:00 - 2026-08-11 00:00:00+00:00**
 - Statusarvot: `{'Processed': 606541, 'Archived': 170189, 'Invoiced': 61869, 'Ready to archive': 17907, 'Waiting for delivery': 535, 'Being processed': 427, 'Canceled': 230, 'New': 54, 'Draft': 17, 'Processed and waiting for return': 5}`
 - Puuttuvat SKU/ProductCode-arvot: **269,495**
 - Invoiced-rivien puuttuvat SKU/ProductCode-arvot: **40,220**
@@ -51,8 +51,8 @@ Raportti on muodostettu ennen malliajoa. Data-aineistoja ei muokata tässä tark
 
 ## Tehtävät ennen malliajoa
 
-1. **Korjaa tai hyväksy myyntiarvojen poikkeamat:** tarkista puuttuvat/virheelliset `price`- ja `amount`-arvot sekä nolla- ja negatiiviset rivit.
-2. **Rajaa myynti:** käytä vain `status = Invoiced` -rivejä ja muodosta `total_value = price * amount` sekä `created_year_month = YYYY-MM`.
+1. **Tarkista myyntiarvot:** `sales` käsitellään rivin kokonaismyyntinä ja `totalprice` yksikköhintana; tarkista nolla- ja negatiiviset Invoiced-rivit.
+2. **Rajaa myynti:** käytä vain `status = Invoiced` -rivejä ja muodosta `created_year_month = YYYY-MM` lähteen `sold_at`-päivästä.
 3. **Varmista Account-liitos:** selvitä myynnin account_id:t, joita Account-rekisterissä ei ole.
 4. **Varmista Profinder-liitos:** tarkista puuttuvat tai duplikaattiset Y-tunnukset ja hyväksy ne rivit, joita ei voi yhdistää yritysdataan.
 5. **Täydennä tuoteryhmät:** liitä `ProductCode` tuotemasteriin ja selvitä kaikki masterista puuttuvat koodit ennen suosituksia.
