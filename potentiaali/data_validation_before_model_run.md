@@ -2,7 +2,7 @@
 
 Raportti on muodostettu ennen malliajoa. Data-aineistoja ei muokata tässä tarkistuksessa.
 
-- [x] Myyntiaineisto: löytyy (11,427,006 tavua).
+- [x] Myyntiaineisto: löytyy (115,104,712 tavua).
 - [x] Profinder-aineisto: löytyy (5,213,530 tavua).
 - [x] Tuotemasteri: löytyy (771,977 tavua).
 - [x] Account-rekisteri: löytyy (1,644,553 tavua).
@@ -10,18 +10,18 @@ Raportti on muodostettu ennen malliajoa. Data-aineistoja ei muokata tässä tark
 - [x] Poistolista: löytyy (2,121,446 tavua).
 
 ## Myyntiaineisto
-- Rivejä: **57,707**
-- Sarakkeet: `source_file, account_id, id, status, category, sku, name, price, amount, order, reference, created_at`
-- Invoiced-rivejä: **55,568**
-- Hylättävät/puuttuvat päivät: **0**
+- Rivejä: **857,774**
+- Sarakkeet: `source_file, id, status, category, productcode, optioncode, name, sales, amount, order, reference, sold_at, accountid, totalprice`
+- Invoiced-rivejä: **61,869**
+- Hylättävät/puuttuvat päivät: **511,729**
 - Hylättävät/puuttuvat account_id:t: **0**
 - Puuttuvat tai virheelliset price/amount-arvot: **0**
-- Nolla- tai negatiiviset riviarvot: **6,640**
-- Invoiced-rivien nolla- tai negatiiviset arvot: **6,336**
-- Aikaväli: **2023-05-27 08:59:40+00:00 - 2026-05-26 13:26:41+00:00**
-- Statusarvot: `{'Invoiced': 55568, 'Being processed': 1053, 'Waiting for delivery': 779, 'Processed': 178, 'New': 129}`
-- Puuttuvat SKU/ProductCode-arvot: **34,664**
-- Invoiced-rivien puuttuvat SKU/ProductCode-arvot: **33,254**
+- Nolla- tai negatiiviset riviarvot: **84,491**
+- Invoiced-rivien nolla- tai negatiiviset arvot: **3,941**
+- Aikaväli: **2023-01-01 00:00:00+00:00 - 2026-12-07 00:00:00+00:00**
+- Statusarvot: `{'Processed': 606541, 'Archived': 170189, 'Invoiced': 61869, 'Ready to archive': 17907, 'Waiting for delivery': 535, 'Being processed': 427, 'Canceled': 230, 'New': 54, 'Draft': 17, 'Processed and waiting for return': 5}`
+- Puuttuvat SKU/ProductCode-arvot: **269,495**
+- Invoiced-rivien puuttuvat SKU/ProductCode-arvot: **40,220**
 
 ## Tuotemasteri
 - Välilehti: `Tuotteet`
@@ -35,7 +35,7 @@ Raportti on muodostettu ennen malliajoa. Data-aineistoja ei muokata tässä tark
 - Puuttuvat Account ID:t: **0**
 - Duplikaattiset Account ID:t: **0**
 - Puuttuvat Y-tunnukset: **11**
-- Myynnin account_id-osumat rekisteriin: **44,447/57,707**
+- Myynnin account_id-osumat rekisteriin: **545,862/857,774**
 
 ## Profinder
 - Rivejä: **10,715**
@@ -45,9 +45,9 @@ Raportti on muodostettu ennen malliajoa. Data-aineistoja ei muokata tässä tark
 - Account-rekisterin Y-tunnukset löytyvät Profinderista: **2,497/5,395**
 
 ## ProductCode-liitos
-- Invoiced-rivien yksilölliset ProductCode-arvot: **4,348**
-- Invoiced ProductCode-arvot löytyvät masterista: **2,837/4,348**
-- Masterista puuttuvat yksilölliset ProductCode-arvot: **1,511**
+- Invoiced-rivien yksilölliset ProductCode-arvot: **4,659**
+- Invoiced ProductCode-arvot löytyvät masterista: **3,202/4,659**
+- Masterista puuttuvat yksilölliset ProductCode-arvot: **1,457**
 
 ## Tehtävät ennen malliajoa
 

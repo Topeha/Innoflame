@@ -19,7 +19,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 POTENTIAL_DIR = Path(__file__).resolve().parent
-SALES_PATH = POTENTIAL_DIR / "GoSystems_sales_26_05_2026_combined.csv"
+SALES_PATH = ROOT / "GoSystems_sales_26_05_2026_summarized.csv"
 PROFINDER_PATH = POTENTIAL_DIR / "haku_Prospektointimasterlista_2026-08-12.xlsx"
 PRODUCT_MASTER_PATH = POTENTIAL_DIR / "INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx"
 ACCOUNTS_PATH = POTENTIAL_DIR / "Account_20.05.2026_combined_with_profinder.xlsx"
@@ -44,20 +44,23 @@ def number(series: pd.Series) -> pd.Series:
 
 
 def prepare_sales(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    raw = pd.read_csv(path, low_memory=False)
-    required = {"account_id", "status", "price", "amount", "created_at"}
+    raw = pd.read_csv(path, sep=None, engine="python")
+    account_col = "account_id" if "account_id" in raw.columns else "accountid"
+    date_col = "created_at" if "created_at" in raw.columns else "sold_at"
+    value_col = "total_value" if "total_value" in raw.columns else "sales"
+    required = {account_col, "status", date_col, value_col}
     missing = sorted(required - set(raw.columns))
     if missing:
         raise ValueError(f"Sales CSV is missing required columns: {missing}")
 
     frame = raw.copy()
-    frame["account_id"] = pd.to_numeric(frame["account_id"], errors="coerce")
-    frame["price_num"] = number(frame["price"]).fillna(0.0)
-    frame["amount_num"] = number(frame["amount"]).fillna(0.0)
-    frame["total_value"] = frame["price_num"] * frame["amount_num"]
-    frame["created_at_dt"] = pd.to_datetime(frame["created_at"], errors="coerce", utc=True).dt.tz_convert(None)
+    frame["account_id"] = pd.to_numeric(frame[account_col], errors="coerce")
+    frame["total_value"] = number(frame[value_col]).fillna(0.0)
+    frame["created_at_dt"] = pd.to_datetime(frame[date_col], errors="coerce", dayfirst=True, utc=True).dt.tz_convert(None)
     frame["created_year_month"] = frame["created_at_dt"].dt.to_period("M").astype("string")
     frame["status_clean"] = frame["status"].astype("string").str.strip()
+    if "productcode" in frame.columns and "sku" not in frame.columns:
+        frame["sku"] = frame["productcode"]
     included = frame.loc[
         frame["status_clean"].str.casefold().eq("invoiced")
         & frame["account_id"].notna()

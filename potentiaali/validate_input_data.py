@@ -10,7 +10,7 @@ import pandas as pd
 
 
 BASE = Path(__file__).resolve().parent
-SALES = BASE / "GoSystems_sales_26_05_2026_combined.csv"
+SALES = BASE.parent / "GoSystems_sales_26_05_2026_summarized.csv"
 PROFINDER = BASE / "haku_Prospektointimasterlista_2026-08-12.xlsx"
 PRODUCT_MASTER = BASE / "INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx"
 ACCOUNTS = BASE / "Account_20.05.2026_combined_with_profinder.xlsx"
@@ -49,14 +49,15 @@ def main() -> None:
     for path, label in [(SALES, "Myyntiaineisto"), (PROFINDER, "Profinder-aineisto"), (PRODUCT_MASTER, "Tuotemasteri"), (ACCOUNTS, "Account-rekisteri"), (CRM, "CRM-potentiaalit"), (EXCLUSIONS, "Poistolista")]:
         lines.extend(check_file(path, label))
 
-    sales = pd.read_csv(SALES, low_memory=False)
+    sales = pd.read_csv(SALES, sep=None, engine="python")
     account_col = find_column(sales, "account_id", "accountid")
     status_col = find_column(sales, "status")
     sku_col = find_column(sales, "sku", "productcode", "product_code")
     date_col = find_column(sales, "created_at", "sold_at", "order_date")
     price_col = find_column(sales, "price")
     amount_col = find_column(sales, "amount")
-    sales_value = pd.to_numeric(sales[price_col], errors="coerce") * pd.to_numeric(sales[amount_col], errors="coerce") if price_col and amount_col else pd.Series(dtype=float)
+    value_col = find_column(sales, "total_value", "sales", "totalprice")
+    sales_value = pd.to_numeric(sales[price_col], errors="coerce") * pd.to_numeric(sales[amount_col], errors="coerce") if price_col and amount_col else (pd.to_numeric(sales[value_col].astype("string").str.replace(",", ".", regex=False), errors="coerce") if value_col else pd.Series(dtype=float))
     sales_date = pd.to_datetime(sales[date_col], errors="coerce", utc=True) if date_col else pd.Series(dtype="datetime64[ns, UTC]")
     invoiced = sales[status_col].astype("string").str.strip().str.casefold().eq("invoiced") if status_col else pd.Series(False, index=sales.index)
     invoiced_value = sales_value.loc[invoiced] if len(sales_value) else pd.Series(dtype=float)
