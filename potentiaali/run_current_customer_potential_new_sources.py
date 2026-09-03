@@ -19,12 +19,12 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 POTENTIAL_DIR = Path(__file__).resolve().parent
-SALES_PATH = ROOT / "GoSystems_sales_26_05_2026_combined.csv"
-PROFINDER_PATH = ROOT / "haku_Prospektointimasterlista_2026-08-12.xlsx"
-PRODUCT_MASTER_PATH = Path(r"C:\Users\TommiHavukainen\Downloads\INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx")
-ACCOUNTS_PATH = ROOT / "Account_20.05.2026_combined_with_profinder.xlsx"
+SALES_PATH = POTENTIAL_DIR / "GoSystems_sales_26_05_2026_combined.csv"
+PROFINDER_PATH = POTENTIAL_DIR / "haku_Prospektointimasterlista_2026-08-12.xlsx"
+PRODUCT_MASTER_PATH = POTENTIAL_DIR / "INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx"
+ACCOUNTS_PATH = POTENTIAL_DIR / "Account_20.05.2026_combined_with_profinder.xlsx"
 CRM_PATH = POTENTIAL_DIR / "CRM_potentials_03.06.2026_03.07.2026 (1).xlsx"
-EXCLUSION_PATH = ROOT / "Netvisor asiakastiedot 6-2026.xlsx"
+EXCLUSION_PATH = POTENTIAL_DIR / "Netvisor asiakastiedot 6-2026.xlsx"
 MODEL_PATH = ROOT / "prospektointi" / "prospect_model.py"
 V3_PATH = ROOT / "two_stage_potential_model" / "v3_recent_weighted_current_model" / "innoflame_all_accounts_model_v3.py"
 RUNNER_PATH = ROOT / "prospektointi" / "run_current_customer_potential.py"
