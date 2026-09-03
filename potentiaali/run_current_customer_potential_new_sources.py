@@ -120,6 +120,41 @@ def _normalise_product_name(value: object) -> str:
     return text
 
 
+def enrich_product_groups_by_product_code(
+    sales: pd.DataFrame,
+    product_grouping: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Use ProductCode as the primary and authoritative master lookup."""
+    frame = sales.copy()
+    if "sku" not in frame.columns:
+        frame["sku"] = ""
+    frame["sku"] = frame["sku"].fillna("").astype("string").str.strip()
+
+    master = product_grouping.copy()
+    master["product_code"] = master["sku"].map(_normalise_product_code)
+    master["product_group"] = master["product_group_l1_name"].fillna("").astype("string").str.strip()
+    master = master.loc[master["product_code"].ne("") & master["product_group"].ne("")].copy()
+    code_counts = master.groupby("product_code")["product_group"].nunique()
+    unique_codes = set(code_counts.loc[code_counts.eq(1)].index)
+    lookup = master.loc[master["product_code"].isin(unique_codes)].drop_duplicates("product_code").set_index("product_code")
+
+    frame["product_group_from_product_code"] = frame["sku"].map(lookup["product_group"])
+    frame["product_code_match"] = "missing_code"
+    frame.loc[frame["sku"].ne(""), "product_code_match"] = "unmatched_code"
+    frame.loc[frame["sku"].isin(unique_codes), "product_code_match"] = "unique_master_code"
+    frame.loc[frame["sku"].isin(code_counts.loc[code_counts.gt(1)].index), "product_code_match"] = "ambiguous_code"
+
+    invoiced = frame.get("status_clean", pd.Series("", index=frame.index)).astype("string").str.casefold().eq("invoiced")
+    quality = pd.DataFrame([
+        {"metric": "product_code_master_unique_keys", "value": int(len(unique_codes))},
+        {"metric": "sales_rows_matched_by_product_code", "value": int((frame["product_code_match"] == "unique_master_code").sum())},
+        {"metric": "sales_rows_unmatched_product_code", "value": int((frame["product_code_match"] == "unmatched_code").sum())},
+        {"metric": "sales_rows_ambiguous_product_code", "value": int((frame["product_code_match"] == "ambiguous_code").sum())},
+        {"metric": "invoiced_rows_matched_by_product_code", "value": int(((frame["product_code_match"] == "unique_master_code") & invoiced).sum())},
+    ])
+    return frame, quality
+
+
 def enrich_missing_product_codes_by_name(
     sales: pd.DataFrame,
     product_grouping: pd.DataFrame,
@@ -437,6 +472,7 @@ def main() -> None:
     args = build_args()
     sales, raw_sales = prepare_sales(SALES_PATH)
     grouping, master_quality = prepare_product_grouping(PRODUCT_MASTER_PATH)
+    sales, product_code_quality = enrich_product_groups_by_product_code(sales, grouping)
     sales, product_name_quality = enrich_missing_product_codes_by_name(sales, grouping)
     product_name_audit = pd.DataFrame()
     if "product_name_match" in sales.columns:
@@ -489,7 +525,7 @@ def main() -> None:
         for name in artifacts["feature_columns"]
         if name in artifacts["modeling_df"].columns
     }
-    product_quality = pd.concat([master_quality, product_name_quality, product_quality, pd.DataFrame([
+    product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, product_quality, pd.DataFrame([
         {"metric": "source_sales_rows", "value": len(raw_sales)},
         {"metric": "included_invoiced_sales_rows", "value": len(sales)},
         {"metric": "included_gokeep_sales_rows", "value": int(sales["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False).sum())},
