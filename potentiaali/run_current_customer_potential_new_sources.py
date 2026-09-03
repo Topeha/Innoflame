@@ -212,6 +212,20 @@ def enrich_missing_product_codes_by_name(
     frame.loc[compact_match, "product_name_match"] = "normalized_master_name"
 
     # Category and description can provide a group even when no product code exists.
+    frame["product_group_from_description"] = pd.NA
+    description_col = next((column for column in ("description", "Description", "product_description") if column in frame.columns), None)
+    description_match = pd.Series(False, index=frame.index)
+    if description_col and "product_description" in master.columns:
+        master["description_key"] = master["product_description"].map(_normalise_product_name)
+        description_counts = master.groupby("description_key")["product_code"].nunique()
+        description_keys = set(description_counts.loc[description_counts.eq(1) & description_counts.index.to_series().ne("")].index)
+        description_lookup = master.loc[master["description_key"].isin(description_keys)].drop_duplicates("description_key").set_index("description_key")
+        sales_description_keys = frame[description_col].map(_normalise_product_name)
+        description_match = frame["product_group_from_product_code"].isna() & frame["product_group_from_name"].isna() & sales_description_keys.isin(description_keys)
+        frame.loc[description_match, "product_group_from_description"] = sales_description_keys.loc[description_match].map(description_lookup["product_group"])
+        frame.loc[description_match, "sku"] = sales_description_keys.loc[description_match].map(description_lookup["product_code"])
+        frame.loc[description_match, "product_name_match"] = "description_exact"
+
     frame["product_group_from_category"] = pd.NA
     category_col = next((column for column in ("category", "ProductGroup", "product_group") if column in frame.columns), None)
     if category_col:
@@ -263,6 +277,7 @@ def enrich_missing_product_codes_by_name(
         {"metric": "product_codes_filled_by_product_name", "value": int(matched_name.sum())},
         {"metric": "product_codes_filled_by_normalized_name", "value": int(compact_match.sum())},
         {"metric": "product_codes_filled_by_fuzzy_high_confidence_name", "value": int(fuzzy_match.sum())},
+        {"metric": "product_codes_filled_by_description", "value": int(description_match.sum())},
         {"metric": "product_groups_filled_by_category", "value": int((frame["product_group_from_category"].notna()).sum())},
         {"metric": "missing_product_code_after_name_enrichment", "value": int(frame["sku"].eq("").sum())},
         {"metric": "invoiced_missing_product_code_before_name_enrichment", "value": int((missing_code & invoiced).sum())},
@@ -544,7 +559,7 @@ def main() -> None:
         if name_column:
             product_name_audit = sales.loc[
                 sales["product_name_match"].ne("not_needed"),
-                ["source_file", "id", "status", name_column, "sku", "product_group_from_product_code", "product_group_from_name", "product_group_from_category", "product_name_match"],
+                ["source_file", "id", "status", name_column, "sku", "product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_name_match"],
             ].copy()
             product_name_audit = product_name_audit.rename(columns={name_column: "product_name", "sku": "ProductCode"})
             product_name_audit.to_csv(
