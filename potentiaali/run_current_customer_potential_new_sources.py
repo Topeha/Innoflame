@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -108,6 +109,80 @@ def prepare_product_grouping(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         ]
     )
     return grouping, quality
+
+
+def _normalise_product_name(value: object) -> str:
+    """Create a conservative key for exact product-name matching."""
+    if pd.isna(value):
+        return ""
+    text = unicodedata.normalize("NFKC", str(value)).casefold()
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def enrich_missing_product_codes_by_name(
+    sales: pd.DataFrame,
+    product_grouping: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fill missing sales SKUs when the product name maps uniquely to master.
+
+    The match is intentionally exact after Unicode/whitespace normalization.
+    Ambiguous names and names absent from the master remain untouched so that
+    the model never assigns a potentially wrong product group.
+    """
+    frame = sales.copy()
+    if "sku" not in frame.columns:
+        frame["sku"] = ""
+    frame["sku"] = frame["sku"].fillna("").astype("string").str.strip()
+    name_col = next((column for column in ("name", "ProductName", "product_name") if column in frame.columns), None)
+    if name_col is None:
+        return frame, pd.DataFrame([{
+            "metric": "product_name_enrichment_status",
+            "value": "sales product-name column not found",
+        }])
+
+    master = product_grouping.copy()
+    master["name_key"] = master["product_name"].map(_normalise_product_name)
+    master["product_code"] = master["sku"].map(_normalise_product_code)
+    master["product_group"] = master["product_group_l1_name"].fillna("").astype("string").str.strip()
+    master = master.loc[master["name_key"].ne("") & master["product_code"].ne("") & master["product_group"].ne("")].copy()
+    name_counts = master.groupby("name_key")["product_code"].nunique()
+    unique_names = set(name_counts.loc[name_counts.eq(1)].index)
+    master_lookup = master.loc[master["name_key"].isin(unique_names)].drop_duplicates("name_key").set_index("name_key")
+
+    sales_name_key = frame[name_col].map(_normalise_product_name)
+    missing_code = frame["sku"].eq("")
+    matched_name = missing_code & sales_name_key.isin(unique_names)
+    frame["product_name_match"] = "not_needed"
+    frame.loc[missing_code, "product_name_match"] = "unmatched"
+    frame.loc[missing_code & sales_name_key.isin(name_counts.loc[name_counts.gt(1)].index), "product_name_match"] = "ambiguous"
+    frame.loc[matched_name, "product_name_match"] = "unique_master_name"
+    frame.loc[matched_name, "sku"] = sales_name_key.loc[matched_name].map(master_lookup["product_code"])
+    frame["product_group_from_name"] = sales_name_key.map(master_lookup["product_group"])
+
+    audit = pd.DataFrame({
+        "source_row": frame.index,
+        "status": frame["status"].astype("string") if "status" in frame.columns else "",
+        "product_name": frame[name_col].astype("string"),
+        "product_name_key": sales_name_key,
+        "product_code_after_enrichment": frame["sku"],
+        "product_group_from_name": frame["product_group_from_name"],
+        "match_status": frame["product_name_match"],
+    })
+    audit = audit.loc[missing_code].copy()
+    invoiced = frame.get("status_clean", pd.Series("", index=frame.index)).astype("string").str.casefold().eq("invoiced")
+    quality = pd.DataFrame([
+        {"metric": "missing_product_code_before_name_enrichment", "value": int(missing_code.sum())},
+        {"metric": "product_codes_filled_by_product_name", "value": int(matched_name.sum())},
+        {"metric": "missing_product_code_after_name_enrichment", "value": int(frame["sku"].eq("").sum())},
+        {"metric": "invoiced_missing_product_code_before_name_enrichment", "value": int((missing_code & invoiced).sum())},
+        {"metric": "invoiced_product_codes_filled_by_product_name", "value": int((matched_name & invoiced).sum())},
+        {"metric": "invoiced_missing_product_code_after_name_enrichment", "value": int((frame["sku"].eq("") & invoiced).sum())},
+        {"metric": "product_name_matches_ambiguous", "value": int((audit["match_status"] == "ambiguous").sum())},
+        {"metric": "product_name_matches_unmatched", "value": int((audit["match_status"] == "unmatched").sum())},
+        {"metric": "product_name_master_unique_keys", "value": int(len(unique_names))},
+    ])
+    return frame, quality
 
 
 def _product_text(frame: pd.DataFrame) -> pd.Series:
@@ -362,6 +437,21 @@ def main() -> None:
     args = build_args()
     sales, raw_sales = prepare_sales(SALES_PATH)
     grouping, master_quality = prepare_product_grouping(PRODUCT_MASTER_PATH)
+    sales, product_name_quality = enrich_missing_product_codes_by_name(sales, grouping)
+    product_name_audit = pd.DataFrame()
+    if "product_name_match" in sales.columns:
+        name_column = next((column for column in ("name", "ProductName", "product_name") if column in sales.columns), None)
+        if name_column:
+            product_name_audit = sales.loc[
+                sales["product_name_match"].ne("not_needed"),
+                ["source_file", "id", "status", name_column, "sku", "product_group_from_name", "product_name_match"],
+            ].copy()
+            product_name_audit = product_name_audit.rename(columns={name_column: "product_name", "sku": "ProductCode"})
+            product_name_audit.to_csv(
+                POTENTIAL_DIR / "product_name_group_enrichment_audit_new_sources.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
     inputs = {
         "crm": pd.read_excel(CRM_PATH, sheet_name=0),
         "product_grouping": grouping,
@@ -399,7 +489,7 @@ def main() -> None:
         for name in artifacts["feature_columns"]
         if name in artifacts["modeling_df"].columns
     }
-    product_quality = pd.concat([master_quality, product_quality, pd.DataFrame([
+    product_quality = pd.concat([master_quality, product_name_quality, product_quality, pd.DataFrame([
         {"metric": "source_sales_rows", "value": len(raw_sales)},
         {"metric": "included_invoiced_sales_rows", "value": len(sales)},
         {"metric": "included_gokeep_sales_rows", "value": int(sales["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False).sum())},
