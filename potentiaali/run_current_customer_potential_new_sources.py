@@ -11,6 +11,7 @@ import importlib.util
 import json
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -120,6 +121,10 @@ def _normalise_product_name(value: object) -> str:
     return text
 
 
+def _compact_product_name(value: object) -> str:
+    return re.sub(r"[^a-z0-9åäö]+", "", _normalise_product_name(value))
+
+
 def enrich_product_groups_by_product_code(
     sales: pd.DataFrame,
     product_grouping: pd.DataFrame,
@@ -195,6 +200,53 @@ def enrich_missing_product_codes_by_name(
     frame.loc[matched_name, "sku"] = sales_name_key.loc[matched_name].map(master_lookup["product_code"])
     frame["product_group_from_name"] = sales_name_key.map(master_lookup["product_group"])
 
+    # A punctuation/spacing-normalized name is the next safe fallback.
+    master["compact_name_key"] = master["product_name"].map(_compact_product_name)
+    compact_counts = master.groupby("compact_name_key")["product_code"].nunique()
+    compact_names = set(compact_counts.loc[compact_counts.eq(1) & compact_counts.index.to_series().ne("")].index)
+    compact_lookup = master.loc[master["compact_name_key"].isin(compact_names)].drop_duplicates("compact_name_key").set_index("compact_name_key")
+    compact_keys = frame[name_col].map(_compact_product_name)
+    compact_match = missing_code & frame["sku"].eq("") & compact_keys.isin(compact_names)
+    frame.loc[compact_match, "sku"] = compact_keys.loc[compact_match].map(compact_lookup["product_code"])
+    frame.loc[compact_match, "product_group_from_name"] = compact_keys.loc[compact_match].map(compact_lookup["product_group"])
+    frame.loc[compact_match, "product_name_match"] = "normalized_master_name"
+
+    # Category and description can provide a group even when no product code exists.
+    frame["product_group_from_category"] = pd.NA
+    category_col = next((column for column in ("category", "ProductGroup", "product_group") if column in frame.columns), None)
+    if category_col:
+        group_by_alias: dict[str, set[str]] = {}
+        for group in master["product_group"].dropna().astype(str):
+            for alias in re.split(r"\s*>\s*|\s*/\s*|\s*\|\s*", group):
+                key = _normalise_product_name(alias)
+                if key:
+                    group_by_alias.setdefault(key, set()).add(group)
+        category_map = {key: next(iter(groups)) for key, groups in group_by_alias.items() if len(groups) == 1}
+        category_keys = frame[category_col].map(_normalise_product_name)
+        category_match = frame["product_group_from_product_code"].isna() & frame["product_group_from_name"].isna() & category_keys.isin(category_map)
+        frame.loc[category_match, "product_group_from_category"] = category_keys.loc[category_match].map(category_map)
+        frame.loc[category_match, "product_name_match"] = "category_exact"
+
+    # High-confidence fuzzy matches are accepted; lower-confidence matches stay review-only.
+    token_index: dict[str, set[str]] = {}
+    for name_key in master_lookup.index:
+        for token in re.findall(r"[a-z0-9åäö]{4,}", name_key):
+            token_index.setdefault(token, set()).add(name_key)
+    fuzzy_candidates: dict[str, tuple[str, float]] = {}
+    unresolved_keys = sales_name_key[missing_code & frame["sku"].eq("")].drop_duplicates()
+    for sales_key in unresolved_keys:
+        candidate_keys: set[str] = set()
+        for token in re.findall(r"[a-z0-9åäö]{4,}", sales_key):
+            candidate_keys.update(token_index.get(token, set()))
+        scored = sorted(((key, SequenceMatcher(None, sales_key, key).ratio()) for key in candidate_keys), key=lambda item: item[1], reverse=True)
+        if scored and scored[0][1] >= 0.93 and (len(scored) == 1 or scored[0][1] - scored[1][1] >= 0.03):
+            fuzzy_candidates[sales_key] = scored[0]
+    fuzzy_match = missing_code & frame["sku"].eq("") & sales_name_key.isin(fuzzy_candidates)
+    if fuzzy_candidates:
+        frame.loc[fuzzy_match, "sku"] = sales_name_key.loc[fuzzy_match].map(lambda key: master_lookup.loc[fuzzy_candidates[key][0], "product_code"])
+        frame.loc[fuzzy_match, "product_group_from_name"] = sales_name_key.loc[fuzzy_match].map(lambda key: master_lookup.loc[fuzzy_candidates[key][0], "product_group"])
+        frame.loc[fuzzy_match, "product_name_match"] = "fuzzy_high_confidence"
+
     audit = pd.DataFrame({
         "source_row": frame.index,
         "status": frame["status"].astype("string") if "status" in frame.columns else "",
@@ -209,6 +261,9 @@ def enrich_missing_product_codes_by_name(
     quality = pd.DataFrame([
         {"metric": "missing_product_code_before_name_enrichment", "value": int(missing_code.sum())},
         {"metric": "product_codes_filled_by_product_name", "value": int(matched_name.sum())},
+        {"metric": "product_codes_filled_by_normalized_name", "value": int(compact_match.sum())},
+        {"metric": "product_codes_filled_by_fuzzy_high_confidence_name", "value": int(fuzzy_match.sum())},
+        {"metric": "product_groups_filled_by_category", "value": int((frame["product_group_from_category"].notna()).sum())},
         {"metric": "missing_product_code_after_name_enrichment", "value": int(frame["sku"].eq("").sum())},
         {"metric": "invoiced_missing_product_code_before_name_enrichment", "value": int((missing_code & invoiced).sum())},
         {"metric": "invoiced_product_codes_filled_by_product_name", "value": int((matched_name & invoiced).sum())},
@@ -267,9 +322,18 @@ def build_product_recommendations(
     sales_frame["sales_eur"] = pd.to_numeric(sales_frame["total_value"], errors="coerce").fillna(0.0)
     sales_frame = sales_frame.merge(account_keys, on="account_id", how="left")
     sales_frame = sales_frame.merge(master[["product_code", "product_name", "product_group"]], on="product_code", how="left")
-    sales_frame = sales_frame.loc[sales_frame["business_id"].notna() & sales_frame["product_code"].ne("")].copy()
+    for column in ("product_group_from_product_code", "product_group_from_name", "product_group_from_category"):
+        if column not in sales_frame.columns:
+            sales_frame[column] = pd.NA
+    sales_frame["product_group"] = (
+        sales_frame["product_group_from_product_code"]
+        .combine_first(sales_frame["product_group_from_name"])
+        .combine_first(sales_frame["product_group_from_category"])
+        .combine_first(sales_frame["product_group"])
+    )
+    sales_frame = sales_frame.loc[sales_frame["business_id"].notna()].copy()
 
-    sold_product_stats = sales_frame.groupby(["product_code", "product_name", "product_group"], as_index=False).agg(
+    sold_product_stats = sales_frame.loc[sales_frame["product_code"].ne("")].groupby(["product_code", "product_name", "product_group"], as_index=False).agg(
         total_product_sales_eur=("sales_eur", "sum"),
         product_customer_count=("business_id", "nunique"),
     )
@@ -281,7 +345,7 @@ def build_product_recommendations(
     product_stats[["total_product_sales_eur", "product_customer_count"]] = product_stats[
         ["total_product_sales_eur", "product_customer_count"]
     ].fillna(0.0)
-    group_stats = sales_frame.groupby(["business_id", "product_group"], as_index=False)["sales_eur"].sum()
+    group_stats = sales_frame.dropna(subset=["product_group"]).loc[sales_frame["product_group"].astype("string").str.strip().ne("")].groupby(["business_id", "product_group"], as_index=False)["sales_eur"].sum()
     customer_totals = group_stats.groupby("business_id")["sales_eur"].sum().to_dict()
     group_totals = group_stats.groupby("product_group")["sales_eur"].sum()
     group_stats["customer_group_share"] = group_stats.apply(
@@ -480,7 +544,7 @@ def main() -> None:
         if name_column:
             product_name_audit = sales.loc[
                 sales["product_name_match"].ne("not_needed"),
-                ["source_file", "id", "status", name_column, "sku", "product_group_from_name", "product_name_match"],
+                ["source_file", "id", "status", name_column, "sku", "product_group_from_product_code", "product_group_from_name", "product_group_from_category", "product_name_match"],
             ].copy()
             product_name_audit = product_name_audit.rename(columns={name_column: "product_name", "sku": "ProductCode"})
             product_name_audit.to_csv(
