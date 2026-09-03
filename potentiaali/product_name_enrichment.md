@@ -12,6 +12,7 @@
 - Jos aineistossa on kuvauskenttä, se yhdistetään tuotemasterin kuvaukseen yksiselitteisenä osumana.
 - Korkean varmuuden sumea nimiosuma hyväksytään vain, jos paras osuma on selvästi seuraavaa parempi.
 - Tuotteen nimi, kuvaus ja kategoria eivät ohita olemassa olevaa ProductCode-liitosta.
+- Kuljetus-, toimitus-, rahti-, pakkaus- ja kustannusviitteiset nimet luokitellaan `Muut pakkaukset` -ryhmään, jos ProductCode-liitosta ei ole.
 - Epäselvät nimet ja tuotemasterista puuttuvat nimet jätetään täyttämättä väärän luokituksen estämiseksi.
 - Täydennetty ProductCode kulkee normaalin tuotemasterin tuoteryhmäliitoksen kautta kaikkiin jatkolaskentoihin.
 
