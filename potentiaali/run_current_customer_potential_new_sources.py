@@ -251,6 +251,21 @@ def enrich_missing_product_codes_by_name(
         frame.loc[alias_match, "product_name_match"] = "explicit_product_group_alias"
         explicit_group_match = explicit_group_match | alias_match
 
+    frame["product_group_from_group_pair"] = pd.NA
+    pair_group_map: dict[tuple[str, str], set[str]] = {}
+    for product_name, group in master[["product_name", "product_group"]].drop_duplicates().itertuples(index=False):
+        words = re.findall(r"[a-zåäö0-9]{3,}", _normalise_product_name(product_name))
+        for pair in zip(words, words[1:]):
+            pair_group_map.setdefault(pair, set()).add(group)
+    pair_group_match = pd.Series(False, index=frame.index)
+    for row_index in frame.index[needs_group & frame["product_group_from_name"].isna() & frame["product_group_from_keyword"].isna() & ~explicit_group_match]:
+        product_words = re.findall(r"[a-zåäö0-9]{3,}", sales_name_key.loc[row_index])
+        candidate_groups = {group for pair in zip(product_words, product_words[1:]) for group in pair_group_map.get(pair, set())}
+        if len(candidate_groups) == 1:
+            frame.loc[row_index, "product_group_from_group_pair"] = next(iter(candidate_groups))
+            frame.loc[row_index, "product_name_match"] = "product_group_pair"
+            pair_group_match.loc[row_index] = True
+
     group_words: list[tuple[str, str]] = []
     ignored_group_words = {"ja", "sekä", "muut", "other", "tuotteet", "products"}
     for group in master["product_group"].dropna().astype(str).drop_duplicates():
@@ -258,7 +273,7 @@ def enrich_missing_product_codes_by_name(
             if word not in ignored_group_words:
                 group_words.append((word, group))
     group_word_match = pd.Series(False, index=frame.index)
-    for row_index in frame.index[needs_group & frame["product_group_from_name"].isna() & frame["product_group_from_keyword"].isna() & ~explicit_group_match]:
+    for row_index in frame.index[needs_group & frame["product_group_from_name"].isna() & frame["product_group_from_keyword"].isna() & ~explicit_group_match & ~pair_group_match]:
         product_words = re.findall(r"[a-zåäö0-9]{5,}", sales_name_key.loc[row_index])
         candidate_groups: set[str] = set()
         for product_word in product_words:
@@ -341,6 +356,7 @@ def enrich_missing_product_codes_by_name(
         {"metric": "product_groups_filled_by_category", "value": int((frame["product_group_from_category"].notna()).sum())},
         {"metric": "product_groups_filled_by_group_word", "value": int(group_word_match.sum())},
         {"metric": "product_groups_filled_by_explicit_group_alias", "value": int(explicit_group_match.sum())},
+        {"metric": "product_groups_filled_by_group_pair", "value": int(pair_group_match.sum())},
         {"metric": "product_groups_assigned_to_muut_pakkaukset_by_name", "value": int(keyword_match.sum())},
         {"metric": "missing_product_code_after_name_enrichment", "value": int(frame["sku"].eq("").sum())},
         {"metric": "invoiced_missing_product_code_before_name_enrichment", "value": int((missing_code & invoiced).sum())},
@@ -400,7 +416,7 @@ def build_product_recommendations(
     sales_frame["sales_eur"] = pd.to_numeric(sales_frame["total_value"], errors="coerce").fillna(0.0)
     sales_frame = sales_frame.merge(account_keys, on="account_id", how="left")
     sales_frame = sales_frame.merge(master[["product_code", "product_name", "product_group"]], on="product_code", how="left")
-    for column in ("product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_group_from_keyword", "product_group_from_group_word"):
+    for column in ("product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_group_from_keyword", "product_group_from_group_pair", "product_group_from_group_word"):
         if column not in sales_frame.columns:
             sales_frame[column] = pd.NA
     sales_frame["product_group"] = (
@@ -409,6 +425,7 @@ def build_product_recommendations(
         .combine_first(sales_frame["product_group_from_description"])
         .combine_first(sales_frame["product_group_from_category"])
         .combine_first(sales_frame["product_group_from_keyword"])
+        .combine_first(sales_frame["product_group_from_group_pair"])
         .combine_first(sales_frame["product_group_from_group_word"])
         .combine_first(sales_frame["product_group"])
     )
@@ -631,7 +648,7 @@ def main() -> None:
         if name_column:
             product_name_audit = sales.loc[
                 sales["product_name_match"].ne("not_needed"),
-                ["source_file", "id", "status", name_column, "sku", "product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_group_from_keyword", "product_name_match"],
+                ["source_file", "id", "status", name_column, "sku", "product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_group_from_keyword", "product_group_from_group_pair", "product_name_match"],
             ].copy()
             product_name_audit = product_name_audit.rename(columns={name_column: "product_name", "sku": "ProductCode"})
             product_name_audit.to_csv(
