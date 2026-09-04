@@ -22,7 +22,9 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 POTENTIAL_DIR = Path(__file__).resolve().parent
-SALES_PATH = ROOT / "GoSystems_sales_26_05_2026_summarized.csv"
+RAW_SALES_PATH = ROOT / "GoSystems_sales_26_05_2026_summarized.csv"
+ENRICHED_SALES_PATH = ROOT / "GoSystems_sales_26_05_2026_summarized_with_product_groups.csv"
+SALES_PATH = ENRICHED_SALES_PATH if ENRICHED_SALES_PATH.exists() else RAW_SALES_PATH
 PROFINDER_PATH = POTENTIAL_DIR / "haku_Prospektointimasterlista_2026-08-12.xlsx"
 PRODUCT_MASTER_PATH = POTENTIAL_DIR / "INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx"
 ACCOUNTS_PATH = POTENTIAL_DIR / "Account_20.05.2026_combined_with_profinder.xlsx"
@@ -63,6 +65,7 @@ def number(series: pd.Series) -> pd.Series:
 
 def prepare_sales(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     raw = pd.read_csv(path, sep=None, engine="python")
+    raw.columns = [str(column).lstrip("\ufeff").strip() for column in raw.columns]
     account_col = "account_id" if "account_id" in raw.columns else "accountid"
     date_col = "created_at" if "created_at" in raw.columns else "sold_at"
     value_col = "total_value" if "total_value" in raw.columns else "sales"
@@ -77,8 +80,13 @@ def prepare_sales(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     frame["created_at_dt"] = pd.to_datetime(frame[date_col], errors="coerce", dayfirst=True, utc=True).dt.tz_convert(None)
     frame["created_year_month"] = frame["created_at_dt"].dt.to_period("M").astype("string")
     frame["status_clean"] = frame["status"].astype("string").str.strip()
-    if "productcode" in frame.columns and "sku" not in frame.columns:
-        frame["sku"] = frame["productcode"]
+    if "sku" not in frame.columns:
+        sku_source = "ProductCodeEnriched" if "ProductCodeEnriched" in frame.columns else "productcode"
+        if sku_source in frame.columns:
+            frame["sku"] = frame[sku_source]
+    if "ProductGroup" in frame.columns:
+        source_group = frame["ProductGroup"].where(frame["ProductGroup"].ne(UNKNOWN_PRODUCT_GROUP))
+        frame["product_group_from_source"] = source_group
     is_gosales = frame["source_file"].astype("string").str.casefold().str.contains("gosales", na=False) if "source_file" in frame.columns else pd.Series(True, index=frame.index)
     is_gokeep = frame["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False) if "source_file" in frame.columns else pd.Series(False, index=frame.index)
     completed_sale = frame["status_clean"].str.casefold().eq("invoiced") & is_gosales
@@ -393,6 +401,8 @@ def enrich_product_groups_by_context(
     frame["product_group_enrichment_source"] = "unmatched"
     resolved = frame["product_group_from_product_code"].combine_first(frame["product_group_from_name"])
     resolved = resolved.combine_first(frame["product_group_from_keyword"])
+    if "product_group_from_source" in frame.columns:
+        resolved = resolved.combine_first(frame["product_group_from_source"])
 
     # Optional local alias table: name, alias or product_name -> product_group.
     alias_map: dict[str, str] = {
@@ -531,6 +541,8 @@ def build_product_recommendations(
             sales_frame[column] = pd.NA
     if "product_group_from_context" not in sales_frame.columns:
         sales_frame["product_group_from_context"] = pd.NA
+    if "product_group_from_source" not in sales_frame.columns:
+        sales_frame["product_group_from_source"] = pd.NA
     sales_frame["product_group"] = (
         sales_frame["product_group_from_product_code"]
         .combine_first(sales_frame["product_group_from_name"])
@@ -540,6 +552,7 @@ def build_product_recommendations(
         .combine_first(sales_frame["product_group_from_group_pair"])
         .combine_first(sales_frame["product_group_from_group_word"])
         .combine_first(sales_frame["product_group_from_context"])
+        .combine_first(sales_frame["product_group_from_source"])
         .fillna(UNKNOWN_PRODUCT_GROUP)
         .combine_first(sales_frame["product_group"])
     )
