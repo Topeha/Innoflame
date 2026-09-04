@@ -20,4 +20,6 @@
 
 Täydennyksistä kirjoitetaan `product_name_group_enrichment_audit_new_sources.csv`. Mallin `data_quality`-välilehdelle kirjataan ennen/jälkeen-määrät erikseen kaikille mukaan otetuille riveille ja Invoiced-riveille.
 
+Potentiaalilaskenta käyttää vain rivejä, joiden myyntiarvo on positiivinen. Nolla- ja negatiiviset rivit jätetään pois ennen tuoteryhmä-, potentiaali- ja suosituslaskentaa, mutta niiden määrät säilytetään data quality -raportissa.
+
 Auditoinnin `product_name_match`-arvot kertovat käytetyn menetelmän: `unique_master_name`, `normalized_master_name`, `description_exact`, `category_exact` tai `fuzzy_high_confidence`. Epäselvät ja löytymättömät nimet jäävät tarkistettaviksi.

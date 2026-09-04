@@ -81,6 +81,9 @@ def prepare_sales(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         & frame["account_id"].notna()
         & frame["created_at_dt"].notna()
     ].copy()
+    # Zero and negative sales must not affect potential, group shares, or recommendations.
+    included["included_for_model"] = included["total_value"].gt(0)
+    included = included.loc[included["included_for_model"]].copy()
     return included, frame
 
 
@@ -563,6 +566,12 @@ def main() -> None:
     runner = load_module(RUNNER_PATH, "innoflame_current_customer_runner")
     args = build_args()
     sales, raw_sales = prepare_sales(SALES_PATH)
+    gosales_source = raw_sales["source_file"].astype("string").str.casefold().str.contains("gosales", na=False)
+    gokeep_source = raw_sales["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False)
+    eligible_sales = (
+        (raw_sales["status_clean"].str.casefold().eq("invoiced") & gosales_source)
+        | (raw_sales["status_clean"].str.casefold().isin(GO_KEEP_COMPLETED_STATUSES) & gokeep_source)
+    ) & raw_sales["account_id"].notna() & raw_sales["created_at_dt"].notna()
     grouping, master_quality = prepare_product_grouping(PRODUCT_MASTER_PATH)
     sales, product_code_quality = enrich_product_groups_by_product_code(sales, grouping)
     sales, product_name_quality = enrich_missing_product_codes_by_name(sales, grouping)
@@ -619,6 +628,10 @@ def main() -> None:
     }
     product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, product_quality, pd.DataFrame([
         {"metric": "source_sales_rows", "value": len(raw_sales)},
+        {"metric": "eligible_sales_rows_before_value_filter", "value": int(eligible_sales.sum())},
+        {"metric": "excluded_negative_sales_rows", "value": int((eligible_sales & raw_sales["total_value"].lt(0)).sum())},
+        {"metric": "excluded_zero_sales_rows", "value": int((eligible_sales & raw_sales["total_value"].eq(0)).sum())},
+        {"metric": "model_sales_rows_after_positive_value_filter", "value": len(sales)},
         {"metric": "included_invoiced_sales_rows", "value": len(sales)},
         {"metric": "included_gokeep_sales_rows", "value": int(sales["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False).sum())},
         {"metric": "included_gokeep_sales_eur", "value": float(sales.loc[sales["source_file"].astype("string").str.casefold().str.contains("gokeep", na=False), "total_value"].sum())},
