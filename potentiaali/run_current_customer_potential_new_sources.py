@@ -138,7 +138,8 @@ def enrich_product_groups_by_product_code(
     if "sku" not in frame.columns:
         frame["sku"] = ""
     frame["sku"] = frame["sku"].fillna("").astype("string").str.strip()
-
+    if "product_group_from_product_code" not in frame.columns:
+        frame["product_group_from_product_code"] = pd.NA
     master = product_grouping.copy()
     master["product_code"] = master["sku"].map(_normalise_product_code)
     master["product_group"] = master["product_group_l1_name"].fillna("").astype("string").str.strip()
@@ -178,6 +179,9 @@ def enrich_missing_product_codes_by_name(
     if "sku" not in frame.columns:
         frame["sku"] = ""
     frame["sku"] = frame["sku"].fillna("").astype("string").str.strip()
+    if "product_group_from_product_code" not in frame.columns:
+        frame["product_group_from_product_code"] = pd.NA
+    needs_group = frame["product_group_from_product_code"].isna()
     name_col = next((column for column in ("name", "ProductName", "product_name") if column in frame.columns), None)
     if name_col is None:
         return frame, pd.DataFrame([{
@@ -196,15 +200,13 @@ def enrich_missing_product_codes_by_name(
 
     sales_name_key = frame[name_col].map(_normalise_product_name)
     missing_code = frame["sku"].eq("")
-    matched_name = missing_code & sales_name_key.isin(unique_names)
+    matched_name = needs_group & sales_name_key.isin(unique_names)
     frame["product_name_match"] = "not_needed"
-    frame.loc[missing_code, "product_name_match"] = "unmatched"
-    frame.loc[missing_code & sales_name_key.isin(name_counts.loc[name_counts.gt(1)].index), "product_name_match"] = "ambiguous"
+    frame.loc[needs_group, "product_name_match"] = "unmatched"
+    frame.loc[needs_group & sales_name_key.isin(name_counts.loc[name_counts.gt(1)].index), "product_name_match"] = "ambiguous"
     frame.loc[matched_name, "product_name_match"] = "unique_master_name"
     frame.loc[matched_name, "sku"] = sales_name_key.loc[matched_name].map(master_lookup["product_code"])
     frame["product_group_from_name"] = sales_name_key.map(master_lookup["product_group"])
-    if "product_group_from_product_code" not in frame.columns:
-        frame["product_group_from_product_code"] = pd.NA
 
     # A punctuation/spacing-normalized name is the next safe fallback.
     master["compact_name_key"] = master["product_name"].map(_compact_product_name)
@@ -212,7 +214,7 @@ def enrich_missing_product_codes_by_name(
     compact_names = set(compact_counts.loc[compact_counts.eq(1) & compact_counts.index.to_series().ne("")].index)
     compact_lookup = master.loc[master["compact_name_key"].isin(compact_names)].drop_duplicates("compact_name_key").set_index("compact_name_key")
     compact_keys = frame[name_col].map(_compact_product_name)
-    compact_match = missing_code & frame["sku"].eq("") & compact_keys.isin(compact_names)
+    compact_match = needs_group & frame["sku"].eq("") & compact_keys.isin(compact_names)
     frame.loc[compact_match, "sku"] = compact_keys.loc[compact_match].map(compact_lookup["product_code"])
     frame.loc[compact_match, "product_group_from_name"] = compact_keys.loc[compact_match].map(compact_lookup["product_group"])
     frame.loc[compact_match, "product_name_match"] = "normalized_master_name"
@@ -220,7 +222,7 @@ def enrich_missing_product_codes_by_name(
     frame["product_group_from_keyword"] = pd.NA
     product_name_text = frame[name_col].fillna("").astype("string").str.casefold()
     keyword_match = product_name_text.map(lambda value: any(term in value for term in EXCLUDED_PRODUCT_TERMS))
-    keyword_match = keyword_match & frame["product_group_from_product_code"].isna()
+    keyword_match = keyword_match & needs_group & frame["product_group_from_name"].isna()
     frame.loc[keyword_match, "product_group_from_keyword"] = PACKAGING_TRANSPORT_GROUP
     frame.loc[keyword_match & frame["product_group_from_name"].isna(), "product_name_match"] = "transport_packaging_keyword"
 
@@ -260,7 +262,7 @@ def enrich_missing_product_codes_by_name(
         for token in re.findall(r"[a-z0-9åäö]{4,}", name_key):
             token_index.setdefault(token, set()).add(name_key)
     fuzzy_candidates: dict[str, tuple[str, float]] = {}
-    unresolved_keys = sales_name_key[missing_code & frame["sku"].eq("")].drop_duplicates()
+    unresolved_keys = sales_name_key[needs_group & frame["sku"].eq("")].drop_duplicates()
     for sales_key in unresolved_keys:
         candidate_keys: set[str] = set()
         for token in re.findall(r"[a-z0-9åäö]{4,}", sales_key):
@@ -268,7 +270,7 @@ def enrich_missing_product_codes_by_name(
         scored = sorted(((key, SequenceMatcher(None, sales_key, key).ratio()) for key in candidate_keys), key=lambda item: item[1], reverse=True)
         if scored and scored[0][1] >= 0.93 and (len(scored) == 1 or scored[0][1] - scored[1][1] >= 0.03):
             fuzzy_candidates[sales_key] = scored[0]
-    fuzzy_match = missing_code & frame["sku"].eq("") & sales_name_key.isin(fuzzy_candidates)
+    fuzzy_match = needs_group & frame["sku"].eq("") & sales_name_key.isin(fuzzy_candidates)
     if fuzzy_candidates:
         frame.loc[fuzzy_match, "sku"] = sales_name_key.loc[fuzzy_match].map(lambda key: master_lookup.loc[fuzzy_candidates[key][0], "product_code"])
         frame.loc[fuzzy_match, "product_group_from_name"] = sales_name_key.loc[fuzzy_match].map(lambda key: master_lookup.loc[fuzzy_candidates[key][0], "product_group"])
@@ -283,11 +285,12 @@ def enrich_missing_product_codes_by_name(
         "product_group_from_name": frame["product_group_from_name"],
         "match_status": frame["product_name_match"],
     })
-    audit = audit.loc[missing_code].copy()
+    audit = audit.loc[needs_group].copy()
     invoiced = frame.get("status_clean", pd.Series("", index=frame.index)).astype("string").str.casefold().eq("invoiced")
     quality = pd.DataFrame([
         {"metric": "missing_product_code_before_name_enrichment", "value": int(missing_code.sum())},
         {"metric": "product_codes_filled_by_product_name", "value": int(matched_name.sum())},
+        {"metric": "product_groups_filled_by_product_name", "value": int(matched_name.sum())},
         {"metric": "product_codes_filled_by_normalized_name", "value": int(compact_match.sum())},
         {"metric": "product_codes_filled_by_fuzzy_high_confidence_name", "value": int(fuzzy_match.sum())},
         {"metric": "product_codes_filled_by_description", "value": int(description_match.sum())},
