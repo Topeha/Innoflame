@@ -37,6 +37,7 @@ EXCLUDED_PRODUCT_TERMS = (
     "kustannus", "cost", "freight", "delivery", "transport", "shipping",
     "pakkauskustannus", "kuljetus", "kuljetuspakkaus", "kuljetuslaatikko",
     "kuljetusalusta", "lava", "rahti", "toimitusmaksu", "käsittelymaksu",
+    "pakkaaminen", "express", "toimitus",
 )
 PACKAGING_TRANSPORT_GROUP = "Muut pakkaukset"
 
