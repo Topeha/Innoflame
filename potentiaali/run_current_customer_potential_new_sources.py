@@ -40,6 +40,8 @@ EXCLUDED_PRODUCT_TERMS = (
     "pakkaaminen", "express", "toimitus",
 )
 PACKAGING_TRANSPORT_GROUP = "Muut pakkaukset"
+UNKNOWN_PRODUCT_GROUP = "Tuntematon tuoteryhmä"
+PRODUCT_GROUP_ALIAS_PATH = POTENTIAL_DIR / "product_group_aliases.csv"
 EXPLICIT_PRODUCT_GROUP_WORD_ALIASES = {
     "lahjakortti": "Lahjakortit ja pääsyliput",
     "huppari": "Hupparit ja Collaget",
@@ -369,6 +371,114 @@ def enrich_missing_product_codes_by_name(
     return frame, quality
 
 
+def enrich_product_groups_by_context(
+    sales: pd.DataFrame,
+    product_grouping: pd.DataFrame,
+    *,
+    use_fuzzy: bool = True,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Use aliases, order context, customer history, and safe fuzzy matches."""
+    frame = sales.copy()
+    if "product_group_from_product_code" not in frame.columns:
+        frame["product_group_from_product_code"] = pd.NA
+    if "product_group_from_name" not in frame.columns:
+        frame["product_group_from_name"] = pd.NA
+    if "product_group_from_keyword" not in frame.columns:
+        frame["product_group_from_keyword"] = pd.NA
+    name_col = next((column for column in ("name", "ProductName", "product_name") if column in frame.columns), None)
+    if name_col is None:
+        return frame, pd.DataFrame(columns=["metric", "value"])
+    name_key = frame[name_col].map(_normalise_product_name)
+    frame["product_group_from_context"] = pd.NA
+    frame["product_group_enrichment_source"] = "unmatched"
+    resolved = frame["product_group_from_product_code"].combine_first(frame["product_group_from_name"])
+    resolved = resolved.combine_first(frame["product_group_from_keyword"])
+
+    # Optional local alias table: name, alias or product_name -> product_group.
+    alias_map: dict[str, str] = {
+        _normalise_product_name(alias): group
+        for alias, group in EXPLICIT_PRODUCT_GROUP_WORD_ALIASES.items()
+    }
+    if PRODUCT_GROUP_ALIAS_PATH.exists():
+        aliases = pd.read_csv(PRODUCT_GROUP_ALIAS_PATH)
+        alias_col = next((column for column in ("alias", "name", "product_name") if column in aliases.columns), None)
+        group_col = next((column for column in ("product_group", "ProductGroup") if column in aliases.columns), None)
+        if alias_col and group_col:
+            alias_map.update({
+                _normalise_product_name(row[alias_col]): str(row[group_col]).strip()
+                for _, row in aliases.dropna(subset=[alias_col, group_col]).iterrows()
+                if _normalise_product_name(row[alias_col]) and str(row[group_col]).strip()
+            })
+    alias_match = resolved.isna() & name_key.isin(alias_map)
+    frame.loc[alias_match, "product_group_from_context"] = name_key.loc[alias_match].map(alias_map)
+    frame.loc[alias_match, "product_group_enrichment_source"] = "alias"
+    resolved = resolved.combine_first(frame["product_group_from_context"])
+
+    # Reuse a group seen elsewhere in the same order/reference only when unique.
+    def unique_context_map(key_col: str) -> dict[str, str]:
+        if key_col not in frame.columns:
+            return {}
+        key = frame[key_col].fillna("").astype("string").str.strip()
+        valid = key.ne("") & resolved.notna()
+        counts = pd.DataFrame({"key": key[valid], "group": resolved[valid]}).groupby("key")["group"].nunique()
+        unique = set(counts.loc[counts.eq(1)].index)
+        return pd.DataFrame({"key": key[valid], "group": resolved[valid]}).loc[lambda d: d["key"].isin(unique)].drop_duplicates("key").set_index("key")["group"].to_dict()
+
+    for column, source in (("reference", "reference_context"), ("order", "order_context")):
+        context_map = unique_context_map(column)
+        if not context_map:
+            continue
+        key = frame[column].fillna("").astype("string").str.strip()
+        match = resolved.isna() & key.isin(context_map)
+        frame.loc[match, "product_group_from_context"] = key.loc[match].map(context_map)
+        frame.loc[match, "product_group_enrichment_source"] = source
+        resolved = resolved.combine_first(frame["product_group_from_context"])
+
+    # Historical customer mapping: same account and product name, unique group.
+    account_col = next((column for column in ("accountid", "account_id") if column in frame.columns), None)
+    if account_col:
+        account_key = frame[account_col].fillna("").astype("string").str.strip() + "|" + name_key
+        valid = account_key.ne("|") & resolved.notna()
+        history = pd.DataFrame({"key": account_key[valid], "group": resolved[valid]}).groupby("key")["group"].nunique()
+        unique = set(history.loc[history.eq(1)].index)
+        history_map = pd.DataFrame({"key": account_key[valid], "group": resolved[valid]}).loc[lambda d: d["key"].isin(unique)].drop_duplicates("key").set_index("key")["group"].to_dict()
+        match = resolved.isna() & account_key.isin(history_map)
+        frame.loc[match, "product_group_from_context"] = account_key.loc[match].map(history_map)
+        frame.loc[match, "product_group_enrichment_source"] = "customer_history"
+        resolved = resolved.combine_first(frame["product_group_from_context"])
+
+    # Fuzzy suggestions are accepted only for a clear, high-confidence match.
+    master = product_grouping.copy()
+    master["name_key"] = master["product_name"].map(_normalise_product_name)
+    master["group"] = master["product_group_l1_name"].fillna("").astype("string").str.strip()
+    master = master.loc[master["name_key"].ne("") & master["group"].ne("")].drop_duplicates("name_key")
+    token_index: dict[str, set[str]] = {}
+    for key in master["name_key"]:
+        for token in re.findall(r"[a-zåäö0-9]{4,}", key):
+            token_index.setdefault(token, set()).add(key)
+    fuzzy_map: dict[str, str] = {}
+    if use_fuzzy:
+        for key in name_key[resolved.isna()].drop_duplicates():
+            candidates = {candidate for token in re.findall(r"[a-zåäö0-9]{4,}", key) for candidate in token_index.get(token, set())}
+            scored = sorted(((candidate, SequenceMatcher(None, key, candidate).ratio()) for candidate in candidates), key=lambda item: item[1], reverse=True)
+            if scored and scored[0][1] >= 0.93 and (len(scored) == 1 or scored[0][1] - scored[1][1] >= 0.03):
+                fuzzy_map[key] = master.loc[master["name_key"].eq(scored[0][0]), "group"].iloc[0]
+    match = resolved.isna() & name_key.isin(fuzzy_map)
+    frame.loc[match, "product_group_from_context"] = name_key.loc[match].map(fuzzy_map)
+    frame.loc[match, "product_group_enrichment_source"] = "fuzzy_high_confidence"
+    resolved = resolved.combine_first(frame["product_group_from_context"])
+
+    frame["product_group_unknown"] = resolved.isna()
+    quality = pd.DataFrame([
+        {"metric": "product_groups_filled_by_alias", "value": int(alias_match.sum())},
+        {"metric": "product_groups_filled_by_reference_or_order", "value": int(frame["product_group_enrichment_source"].isin(["reference_context", "order_context"]).sum())},
+        {"metric": "product_groups_filled_by_customer_history", "value": int((frame["product_group_enrichment_source"] == "customer_history").sum())},
+        {"metric": "product_groups_filled_by_fuzzy_high_confidence", "value": int((frame["product_group_enrichment_source"] == "fuzzy_high_confidence").sum())},
+        {"metric": "rows_assigned_unknown_product_group", "value": int(frame["product_group_unknown"].sum())},
+    ])
+    return frame, quality
+
+
 def _product_text(frame: pd.DataFrame) -> pd.Series:
     columns = [column for column in ("sku", "product_name", "product_description", "lowest_product_group_name") if column in frame.columns]
     text = frame[columns].fillna("").astype("string").agg(" ".join, axis=1).str.casefold()
@@ -419,6 +529,8 @@ def build_product_recommendations(
     for column in ("product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_group_from_keyword", "product_group_from_group_pair", "product_group_from_group_word"):
         if column not in sales_frame.columns:
             sales_frame[column] = pd.NA
+    if "product_group_from_context" not in sales_frame.columns:
+        sales_frame["product_group_from_context"] = pd.NA
     sales_frame["product_group"] = (
         sales_frame["product_group_from_product_code"]
         .combine_first(sales_frame["product_group_from_name"])
@@ -427,6 +539,8 @@ def build_product_recommendations(
         .combine_first(sales_frame["product_group_from_keyword"])
         .combine_first(sales_frame["product_group_from_group_pair"])
         .combine_first(sales_frame["product_group_from_group_word"])
+        .combine_first(sales_frame["product_group_from_context"])
+        .fillna(UNKNOWN_PRODUCT_GROUP)
         .combine_first(sales_frame["product_group"])
     )
     sales_frame = sales_frame.loc[sales_frame["business_id"].notna()].copy()
@@ -642,6 +756,7 @@ def main() -> None:
     grouping, master_quality = prepare_product_grouping(PRODUCT_MASTER_PATH)
     sales, product_code_quality = enrich_product_groups_by_product_code(sales, grouping)
     sales, product_name_quality = enrich_missing_product_codes_by_name(sales, grouping)
+    sales, context_quality = enrich_product_groups_by_context(sales, grouping)
     product_name_audit = pd.DataFrame()
     if "product_name_match" in sales.columns:
         name_column = next((column for column in ("name", "ProductName", "product_name") if column in sales.columns), None)
@@ -693,7 +808,7 @@ def main() -> None:
         for name in artifacts["feature_columns"]
         if name in artifacts["modeling_df"].columns
     }
-    product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, product_quality, pd.DataFrame([
+    product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, context_quality, product_quality, pd.DataFrame([
         {"metric": "source_sales_rows", "value": len(raw_sales)},
         {"metric": "eligible_sales_rows_before_value_filter", "value": int(eligible_sales.sum())},
         {"metric": "excluded_negative_sales_rows", "value": int((eligible_sales & raw_sales["total_value"].lt(0)).sum())},

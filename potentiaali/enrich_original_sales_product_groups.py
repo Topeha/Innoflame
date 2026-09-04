@@ -11,9 +11,11 @@ import pandas as pd
 from run_current_customer_potential_new_sources import (
     PRODUCT_MASTER_PATH,
     EXCLUDED_PRODUCT_TERMS,
+    UNKNOWN_PRODUCT_GROUP,
     _compact_product_name,
     _normalise_product_code,
     _normalise_product_name,
+    enrich_product_groups_by_context,
     prepare_product_grouping,
 )
 
@@ -105,18 +107,31 @@ def main() -> None:
     missing = work["ProductGroup"].isna()
     work.loc[missing, "ProductGroup"] = work.loc[missing, "name_key"].map(word_groups)
     work.loc[missing & work["ProductGroup"].notna(), "ProductGroupSource"] = "product_group_word"
+    work["product_group_from_product_code"] = work["ProductGroup"].where(work["ProductGroupSource"].eq("product_code"))
+    work["product_group_from_name"] = work["ProductGroup"].where(work["ProductGroupSource"].isin(["product_name", "normalized_name"]))
+    work["product_group_from_keyword"] = work["ProductGroup"].where(work["ProductGroupSource"].eq("transport_packaging_keyword"))
+    work["status_clean"] = work.get("status", pd.Series("", index=work.index)).astype("string").str.strip()
+    work, context_quality = enrich_product_groups_by_context(work, grouping, use_fuzzy=False)
+    context_missing = work["ProductGroup"].isna() & work["product_group_from_context"].notna()
+    work.loc[context_missing, "ProductGroup"] = work.loc[context_missing, "product_group_from_context"]
+    work.loc[context_missing, "ProductGroupSource"] = work.loc[context_missing, "product_group_enrichment_source"]
+    work["ProductGroupIsUnknown"] = work["ProductGroup"].isna()
+    work.loc[work["ProductGroupIsUnknown"], "ProductGroup"] = UNKNOWN_PRODUCT_GROUP
+    work.loc[work["ProductGroupIsUnknown"], "ProductGroupSource"] = "unknown"
     work["ProductCodeEnriched"] = work["sku"].replace("", pd.NA)
 
-    output_columns = list(sales.columns) + ["ProductCodeEnriched", "ProductGroup", "ProductGroupSource"]
+    output_columns = list(sales.columns) + ["ProductCodeEnriched", "ProductGroup", "ProductGroupSource", "ProductGroupIsUnknown"]
     work[output_columns].to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
     quality = {
         "input_rows": int(len(sales)),
         "output_rows": int(len(work)),
         "rows_with_product_group": int(work["ProductGroup"].notna().sum()),
         "rows_without_product_group": int(work["ProductGroup"].isna().sum()),
+        "rows_assigned_unknown_product_group": int(work["ProductGroupIsUnknown"].sum()),
         "rows_with_product_group_percent": round(float(work["ProductGroup"].notna().mean() * 100), 2),
         "rows_by_source": work["ProductGroupSource"].value_counts(dropna=False).to_dict(),
         "output_path": str(OUTPUT_PATH),
+        "context_quality": context_quality.set_index("metric")["value"].to_dict(),
     }
     QUALITY_PATH.write_text(json.dumps(quality, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(quality, ensure_ascii=False, indent=2))
