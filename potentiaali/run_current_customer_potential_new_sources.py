@@ -40,6 +40,10 @@ EXCLUDED_PRODUCT_TERMS = (
     "pakkaaminen", "express", "toimitus",
 )
 PACKAGING_TRANSPORT_GROUP = "Muut pakkaukset"
+EXPLICIT_PRODUCT_GROUP_WORD_ALIASES = {
+    "lahjakortti": "Lahjakortit ja pääsyliput",
+    "huppari": "Hupparit ja Collaget",
+}
 
 
 def load_module(path: Path, name: str) -> Any:
@@ -229,6 +233,24 @@ def enrich_missing_product_codes_by_name(
 
     # Match a meaningful product-name word to a unique product-group word.
     frame["product_group_from_group_word"] = pd.NA
+    leaf_group_map: dict[str, set[str]] = {}
+    for group in master["product_group"].dropna().astype(str).drop_duplicates():
+        leaf = _normalise_product_name(re.split(r"\s*>\s*|\s*/\s*|\s*\|\s*", group)[-1])
+        if leaf:
+            leaf_group_map.setdefault(leaf, set()).add(group)
+    explicit_group_map = {
+        alias: next(iter(leaf_group_map[_normalise_product_name(target)]))
+        for alias, target in EXPLICIT_PRODUCT_GROUP_WORD_ALIASES.items()
+        if _normalise_product_name(target) in leaf_group_map
+    }
+    explicit_group_match = pd.Series(False, index=frame.index)
+    for alias, group in explicit_group_map.items():
+        alias_match = needs_group & frame["product_group_from_name"].isna() & frame["product_group_from_keyword"].isna()
+        alias_match = alias_match & sales_name_key.str.contains(rf"(?<![a-zåäö0-9]){re.escape(alias)}(?![a-zåäö0-9])", regex=True, na=False)
+        frame.loc[alias_match, "product_group_from_group_word"] = group
+        frame.loc[alias_match, "product_name_match"] = "explicit_product_group_alias"
+        explicit_group_match = explicit_group_match | alias_match
+
     group_words: list[tuple[str, str]] = []
     ignored_group_words = {"ja", "sekä", "muut", "other", "tuotteet", "products"}
     for group in master["product_group"].dropna().astype(str).drop_duplicates():
@@ -236,7 +258,7 @@ def enrich_missing_product_codes_by_name(
             if word not in ignored_group_words:
                 group_words.append((word, group))
     group_word_match = pd.Series(False, index=frame.index)
-    for row_index in frame.index[needs_group & frame["product_group_from_name"].isna() & frame["product_group_from_keyword"].isna()]:
+    for row_index in frame.index[needs_group & frame["product_group_from_name"].isna() & frame["product_group_from_keyword"].isna() & ~explicit_group_match]:
         product_words = re.findall(r"[a-zåäö0-9]{5,}", sales_name_key.loc[row_index])
         candidate_groups: set[str] = set()
         for product_word in product_words:
@@ -318,6 +340,7 @@ def enrich_missing_product_codes_by_name(
         {"metric": "product_codes_filled_by_description", "value": int(description_match.sum())},
         {"metric": "product_groups_filled_by_category", "value": int((frame["product_group_from_category"].notna()).sum())},
         {"metric": "product_groups_filled_by_group_word", "value": int(group_word_match.sum())},
+        {"metric": "product_groups_filled_by_explicit_group_alias", "value": int(explicit_group_match.sum())},
         {"metric": "product_groups_assigned_to_muut_pakkaukset_by_name", "value": int(keyword_match.sum())},
         {"metric": "missing_product_code_after_name_enrichment", "value": int(frame["sku"].eq("").sum())},
         {"metric": "invoiced_missing_product_code_before_name_enrichment", "value": int((missing_code & invoiced).sum())},
