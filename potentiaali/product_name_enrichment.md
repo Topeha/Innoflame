@@ -10,6 +10,7 @@
 - Piste-, yhdysmerkki- ja välilyöntierot käsitellään toisena nimivariaationa.
 - Myyntirivin kategoriaa verrataan tuotemasterin yksiselitteisiin ryhmäpolun osiin.
 - Jos aineistossa on kuvauskenttä, se yhdistetään tuotemasterin kuvaukseen yksiselitteisenä osumana.
+- Tuoteryhmäpolun merkityksellisiä sanoja verrataan tuotteen nimen sanoihin myös lievällä yksikkö/pluraalivaihtelulla.
 - Korkean varmuuden sumea nimiosuma hyväksytään vain, jos paras osuma on selvästi seuraavaa parempi.
 - Tuotteen nimi, kuvaus ja kategoria eivät ohita olemassa olevaa ProductCode-liitosta.
 - Kuljetus-, toimitus-, rahti-, pakkaus-, `pakkaaminen`-, `express`- ja kustannusviitteiset nimet luokitellaan `Muut pakkaukset` -ryhmään, jos ProductCode-liitosta ei ole.
@@ -22,4 +23,4 @@ Täydennyksistä kirjoitetaan `product_name_group_enrichment_audit_new_sources.c
 
 Potentiaalilaskenta käyttää vain rivejä, joiden myyntiarvo on positiivinen. Nolla- ja negatiiviset rivit jätetään pois ennen tuoteryhmä-, potentiaali- ja suosituslaskentaa, mutta niiden määrät säilytetään data quality -raportissa.
 
-Auditoinnin `product_name_match`-arvot kertovat käytetyn menetelmän: `unique_master_name`, `normalized_master_name`, `description_exact`, `category_exact` tai `fuzzy_high_confidence`. Epäselvät ja löytymättömät nimet jäävät tarkistettaviksi.
+Auditoinnin `product_name_match`-arvot kertovat käytetyn menetelmän: `unique_master_name`, `normalized_master_name`, `description_exact`, `category_exact`, `product_group_word` tai `fuzzy_high_confidence`. Epäselvät ja löytymättömät nimet jäävät tarkistettaviksi.
