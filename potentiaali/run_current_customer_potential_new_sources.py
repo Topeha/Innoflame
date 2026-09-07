@@ -26,8 +26,14 @@ RAW_SALES_PATH = ROOT / "GoSystems_sales_26_05_2026_summarized.csv"
 ENRICHED_SALES_PATH = ROOT / "GoSystems_sales_26_05_2026_summarized_with_product_groups.csv"
 SALES_PATH = ENRICHED_SALES_PATH if ENRICHED_SALES_PATH.exists() else RAW_SALES_PATH
 PROFINDER_PATH = POTENTIAL_DIR / "haku_Prospektointimasterlista_2026-08-12.xlsx"
+PROFINDER_WORKING_COPY_PATH = POTENTIAL_DIR / "haku_Prospektointimasterlista_2026-08-12_working_copy.xlsx"
+if PROFINDER_WORKING_COPY_PATH.exists():
+    PROFINDER_PATH = PROFINDER_WORKING_COPY_PATH
 PRODUCT_MASTER_PATH = POTENTIAL_DIR / "INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx"
 ACCOUNTS_PATH = POTENTIAL_DIR / "Account_20.05.2026_combined_with_profinder.xlsx"
+ACCOUNTS_WORKING_COPY_PATH = POTENTIAL_DIR / "Account_20.05.2026_combined_with_profinder_working_copy.xlsx"
+if ACCOUNTS_WORKING_COPY_PATH.exists():
+    ACCOUNTS_PATH = ACCOUNTS_WORKING_COPY_PATH
 CRM_PATH = POTENTIAL_DIR / "CRM_potentials_03.06.2026_03.07.2026 (1).xlsx"
 EXCLUSION_PATH = POTENTIAL_DIR / "Netvisor asiakastiedot 6-2026.xlsx"
 MODEL_PATH = ROOT / "prospektointi" / "prospect_model.py"
@@ -573,11 +579,10 @@ def build_product_recommendations(
     group_stats = sales_frame.dropna(subset=["product_group"]).loc[sales_frame["product_group"].astype("string").str.strip().ne("")].groupby(["business_id", "product_group"], as_index=False)["sales_eur"].sum()
     customer_totals = group_stats.groupby("business_id")["sales_eur"].sum().to_dict()
     group_totals = group_stats.groupby("product_group")["sales_eur"].sum()
-    group_stats["customer_group_share"] = group_stats.apply(
-        lambda row: float(row["sales_eur"]) / float(customer_totals.get(row["business_id"], 0.0))
-        if customer_totals.get(row["business_id"], 0.0) > 0 else 0.0,
-        axis=1,
-    )
+    # Vectorized equivalent of the per-row share calculation.
+    group_stats["customer_group_share"] = group_stats["sales_eur"].div(
+        group_stats["business_id"].map(customer_totals).replace(0, np.nan)
+    ).fillna(0.0)
     customer_group_share = {(row.business_id, row.product_group): row.customer_group_share for row in group_stats.itertuples()}
     peer_group_share = group_stats.groupby("product_group")["sales_eur"].sum()
     peer_total = float(peer_group_share.sum()) or 1.0
@@ -586,7 +591,6 @@ def build_product_recommendations(
     segment_col = "company_segment" if "company_segment" in customer_potential.columns else None
     customer_rows = customer_potential.dropna(subset=["business_id"]).drop_duplicates("business_id")
     segment_counts = customer_rows.groupby(segment_col)["business_id"].nunique().to_dict() if segment_col else {}
-    owned = set(zip(sales_frame["business_id"], sales_frame["product_code"]))
     product_group_share = product_stats.assign(
         group_total=product_stats["product_group"].map(group_totals).fillna(0.0)
     )
@@ -599,12 +603,38 @@ def build_product_recommendations(
     product_group_share["is_if"] = product_group_share["product_code"].str.startswith("IF")
     product_group_share["is_dif"] = product_group_share["product_code"].str.startswith("DIF")
 
+    # The final output contains only the top five products per customer. Keep
+    # a bounded, auditable candidate pool for new-product scoring instead of
+    # rebuilding the full product master for every customer.
+    new_candidate_pool = product_group_share.loc[
+        product_group_share["product_code"].str.startswith(("IF", "DIF"))
+        & ~product_group_share["excluded_from_recommendations"].fillna(False)
+    ].copy()
+    new_candidate_pool = (
+        new_candidate_pool.sort_values(
+            ["product_group", "product_share", "total_product_sales_eur"],
+            ascending=[True, False, False],
+            kind="mergesort",
+        )
+        .groupby("product_group", sort=False, group_keys=False)
+        .head(max(25, max_recommendations_per_customer * 5))
+    )
+    products_by_customer = {
+        business_id: set(product_codes)
+        for business_id, product_codes in sales_frame.loc[sales_frame["product_code"].ne("")]
+        .groupby("business_id")["product_code"]
+    }
+    sales_by_customer = {
+        business_id: customer_frame
+        for business_id, customer_frame in sales_frame.groupby("business_id", sort=False)
+    }
+
     output_rows = []
     for row in customer_rows.itertuples(index=False):
         business_id = row.business_id
         expected = float(pd.to_numeric(getattr(row, "expected_potential_eur", 0.0), errors="coerce") or 0.0)
         segment = getattr(row, segment_col, "") if segment_col else ""
-        customer_products = sales_frame.loc[sales_frame["business_id"].eq(business_id)]
+        customer_products = sales_by_customer.get(business_id, sales_frame.iloc[0:0])
         customer_product_sales = customer_products.groupby("product_code")["sales_eur"].sum().to_dict()
         customer_total = float(sum(max(value, 0.0) for value in customer_product_sales.values())) or 1.0
         customer_group_shares = {
@@ -612,15 +642,14 @@ def build_product_recommendations(
             for group, value in customer_products.groupby("product_group")["sales_eur"].sum().items()
         }
         for recommendation_type in ("current", "new"):
-            candidates = product_group_share.copy()
-            candidates = candidates.loc[~candidates["excluded_from_recommendations"].fillna(False)]
             if recommendation_type == "current":
-                candidates = candidates.loc[candidates["product_code"].isin(customer_product_sales)]
+                candidates = product_group_share.loc[
+                    ~product_group_share["excluded_from_recommendations"].fillna(False)
+                    & product_group_share["product_code"].isin(customer_product_sales)
+                ].copy()
             else:
-                candidates = candidates.loc[
-                    candidates["product_code"].str.startswith(("IF", "DIF"))
-                    & ~candidates["product_code"].map(lambda code: (business_id, code) in owned)
-                ]
+                owned_products = products_by_customer.get(business_id, set())
+                candidates = new_candidate_pool.loc[~new_candidate_pool["product_code"].isin(owned_products)].copy()
             if candidates.empty:
                 continue
             candidates = candidates.copy()
@@ -769,7 +798,10 @@ def main() -> None:
     grouping, master_quality = prepare_product_grouping(PRODUCT_MASTER_PATH)
     sales, product_code_quality = enrich_product_groups_by_product_code(sales, grouping)
     sales, product_name_quality = enrich_missing_product_codes_by_name(sales, grouping)
-    sales, context_quality = enrich_product_groups_by_context(sales, grouping)
+    # The enriched sales file already contains the approved group assignments.
+    # Keep the model run bounded by using deterministic context matches only;
+    # fuzzy enrichment is performed separately by the data-preparation step.
+    sales, context_quality = enrich_product_groups_by_context(sales, grouping, use_fuzzy=False)
     product_name_audit = pd.DataFrame()
     if "product_name_match" in sales.columns:
         name_column = next((column for column in ("name", "ProductName", "product_name") if column in sales.columns), None)
