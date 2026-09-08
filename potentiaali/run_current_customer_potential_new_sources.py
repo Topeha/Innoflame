@@ -731,10 +731,7 @@ def runner_normalize_business_id(value: object) -> str | None:
     return f"{digits[:-1]}-{digits[-1]}" if len(digits) >= 8 else None
 
 
-def enrich_customer_potential(
-    customer_potential: pd.DataFrame,
-    reference_date: object | None = None,
-) -> pd.DataFrame:
+def enrich_customer_potential(customer_potential: pd.DataFrame) -> pd.DataFrame:
     frame = customer_potential.copy()
     current = pd.to_numeric(frame.get("recent_12m", 0.0), errors="coerce").fillna(0.0)
     next_12m = pd.to_numeric(frame.get("expected_potential_eur", 0.0), errors="coerce").fillna(0.0)
@@ -742,21 +739,114 @@ def enrich_customer_potential(
     frame["PotentialSalesNext12MonthsEUR"] = next_12m
     frame["PotentialGrowthEUR"] = (next_12m - current).clip(lower=0.0)
     frame["PotentialGrowthPercent"] = np.where(current.gt(0), frame["PotentialGrowthEUR"] / current, 0.0)
-    # The existing model is an annual expected-value model without monthly
-    # seasonality. Keep the rolling 12-month result unchanged and expose the
-    # same annual value under the next calendar year for reporting clarity.
-    ref = pd.Timestamp(reference_date) if reference_date is not None else pd.Timestamp.today()
-    frame["PotentialNextCalendarYear"] = int(ref.year + 1)
-    frame["PotentialSalesNextCalendarYearEUR"] = next_12m
-    frame["PotentialGrowthNextCalendarYearEUR"] = (next_12m - current).clip(lower=0.0)
-    frame["PotentialGrowthNextCalendarYearPercent"] = np.where(
-        current.gt(0), frame["PotentialGrowthNextCalendarYearEUR"] / current, 0.0
-    )
     model_score = pd.to_numeric(frame.get("score", 0.0), errors="coerce").fillna(0.0)
     probability = pd.to_numeric(frame.get("probability_of_growth", 0.0), errors="coerce").fillna(0.0)
     frame["PotentialScore"] = ((model_score * 0.7 + probability * 0.3).clip(0.0, 1.0) * 100).round(1)
     frame["SalesPriority"] = pd.cut(frame["PotentialScore"], bins=[-1, 39.999, 69.999, 100], labels=["Low", "Medium", "High"]).astype("string")
     return frame
+
+
+def add_calendar_year_forecast(
+    customer_potential: pd.DataFrame,
+    sales: pd.DataFrame,
+    accounts: pd.DataFrame,
+    reference_date: object,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Forecast the next calendar year from customer-group monthly history."""
+    ref = pd.Timestamp(reference_date)
+    next_year = int(ref.year + 1)
+    account_id_col = runner_resolve_column(accounts, ["id", "account_id", "account id"])
+    business_col = runner_resolve_column(accounts, ["business id", "business_id", "y tunnus", "y-tunnus"])
+    if account_id_col is None or business_col is None:
+        raise ValueError("Accounts file must contain account ID and business ID columns for calendar forecasts.")
+
+    account_keys = accounts[[account_id_col, business_col]].copy()
+    account_keys.columns = ["account_id", "business_id"]
+    account_keys["account_id"] = pd.to_numeric(account_keys["account_id"], errors="coerce")
+    account_keys["business_id"] = account_keys["business_id"].map(runner_normalize_business_id)
+    account_keys = account_keys.dropna(subset=["account_id", "business_id"]).drop_duplicates("account_id")
+
+    frame = sales[[column for column in ["account_id", "total_value", "created_at_dt", "product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_group_from_keyword", "product_group_from_group_pair", "product_group_from_group_word", "product_group_from_context", "product_group_from_source"] if column in sales.columns]].copy()
+    frame["account_id"] = pd.to_numeric(frame["account_id"], errors="coerce")
+    frame["sales_eur"] = pd.to_numeric(frame["total_value"], errors="coerce").fillna(0.0)
+    frame["created_at_dt"] = pd.to_datetime(frame["created_at_dt"], errors="coerce")
+    frame = frame.loc[frame["sales_eur"].gt(0) & frame["created_at_dt"].notna()].merge(account_keys, on="account_id", how="left")
+    frame = frame.loc[frame["business_id"].notna() & frame["created_at_dt"].lt(ref)].copy()
+    group_columns = [column for column in ["product_group_from_product_code", "product_group_from_name", "product_group_from_description", "product_group_from_category", "product_group_from_keyword", "product_group_from_group_pair", "product_group_from_group_word", "product_group_from_context", "product_group_from_source"] if column in frame.columns]
+    frame["product_group"] = pd.Series(pd.NA, index=frame.index, dtype="string")
+    for column in group_columns:
+        frame["product_group"] = frame["product_group"].combine_first(frame[column].astype("string").replace(UNKNOWN_PRODUCT_GROUP, pd.NA))
+    frame["product_group"] = frame["product_group"].fillna(UNKNOWN_PRODUCT_GROUP)
+    frame["year"] = frame["created_at_dt"].dt.year.astype(int)
+    frame["month"] = frame["created_at_dt"].dt.month.astype(int)
+
+    historical_years = [int(ref.year - 3), int(ref.year - 2), int(ref.year - 1)]
+    historical = frame.loc[frame["year"].isin(historical_years)].copy()
+    ytd = frame.loc[frame["year"].eq(ref.year)].copy()
+    annual = historical.groupby(["business_id", "product_group", "year"], as_index=False)["sales_eur"].sum()
+    ytd_group = ytd.groupby(["business_id", "product_group"], as_index=False)["sales_eur"].sum().rename(columns={"sales_eur": "ytd_sales_eur"})
+    keys = pd.concat([annual[["business_id", "product_group"]], ytd_group[["business_id", "product_group"]]], ignore_index=True).drop_duplicates()
+    annual_pivot = annual.pivot_table(index=["business_id", "product_group"], columns="year", values="sales_eur", aggfunc="sum", fill_value=0.0).reset_index()
+    for year in historical_years:
+        if year not in annual_pivot.columns:
+            annual_pivot[year] = 0.0
+    forecast = keys.merge(annual_pivot, on=["business_id", "product_group"], how="left").merge(ytd_group, on=["business_id", "product_group"], how="left")
+    for year in historical_years:
+        forecast[year] = pd.to_numeric(forecast[year], errors="coerce").fillna(0.0)
+    forecast["ytd_sales_eur"] = forecast["ytd_sales_eur"].fillna(0.0)
+    forecast["ytd_months"] = max(int(ref.month - 1), 1)
+    weights = {historical_years[0]: 0.10, historical_years[1]: 0.30, historical_years[2]: 0.60}
+    weighted_sum = sum(forecast[year] * weight for year, weight in weights.items())
+    available_weight = sum(np.where(forecast[year].gt(0), weight, 0.0) for year, weight in weights.items())
+    historical_base = weighted_sum.div(pd.Series(available_weight, index=forecast.index).replace(0, np.nan)).fillna(0.0)
+    ytd_annualized = forecast["ytd_sales_eur"] / forecast["ytd_months"] * 12.0
+    forecast["calendar_base_eur"] = np.where(forecast["ytd_sales_eur"].gt(0), 0.70 * historical_base + 0.30 * ytd_annualized, historical_base)
+    forecast["trend_factor"] = np.where(
+        forecast[historical_years[1]].gt(0),
+        (forecast[historical_years[2]] / forecast[historical_years[1]]).clip(lower=0.75, upper=1.25),
+        1.0,
+    )
+    forecast["forecast_annual_eur"] = (forecast["calendar_base_eur"] * (0.70 + 0.30 * forecast["trend_factor"])).clip(lower=0.0)
+
+    seasonal = historical.groupby(["product_group", "year", "month"], as_index=False)["sales_eur"].sum()
+    seasonal_totals = seasonal.groupby(["product_group", "year"], as_index=False)["sales_eur"].sum().rename(columns={"sales_eur": "year_total_eur"})
+    seasonal = seasonal.merge(seasonal_totals, on=["product_group", "year"], how="left")
+    seasonal["share"] = np.where(seasonal["year_total_eur"].gt(0), seasonal["sales_eur"] / seasonal["year_total_eur"], 0.0)
+    seasonal = seasonal.groupby(["product_group", "month"], as_index=False)["share"].mean()
+    seasonal["share"] = seasonal["share"] / seasonal.groupby("product_group")["share"].transform("sum").replace(0, np.nan)
+    seasonal["share"] = seasonal["share"].fillna(1.0 / 12.0)
+    seasonal_lookup = seasonal.set_index(["product_group", "month"])["share"].to_dict()
+
+    monthly_rows = []
+    for row in forecast.itertuples(index=False):
+        shares = [float(seasonal_lookup.get((row.product_group, month), 1.0 / 12.0)) for month in range(1, 13)]
+        share_total = sum(shares) or 1.0
+        for month, share in enumerate(shares, start=1):
+            monthly_rows.append({
+                "business_id": row.business_id,
+                "product_group": row.product_group,
+                "forecast_year": next_year,
+                "forecast_month": month,
+                "seasonal_share": share / share_total,
+                "forecast_sales_eur": float(row.forecast_annual_eur) * share / share_total,
+            })
+    monthly_forecast = pd.DataFrame(monthly_rows)
+    annual_forecast = monthly_forecast.groupby("business_id", as_index=False)["forecast_sales_eur"].sum().rename(columns={"forecast_sales_eur": "PotentialSalesNextCalendarYearEUR"})
+    result = customer_potential.merge(annual_forecast, on="business_id", how="left")
+    result["PotentialNextCalendarYear"] = next_year
+    result["PotentialSalesNextCalendarYearEUR"] = result["PotentialSalesNextCalendarYearEUR"].fillna(0.0)
+    current = pd.to_numeric(result["CurrentSalesEUR"], errors="coerce").fillna(0.0)
+    result["PotentialGrowthNextCalendarYearEUR"] = (result["PotentialSalesNextCalendarYearEUR"] - current).clip(lower=0.0)
+    result["PotentialGrowthNextCalendarYearPercent"] = np.where(current.gt(0), result["PotentialGrowthNextCalendarYearEUR"] / current, 0.0)
+    quality = pd.DataFrame([
+        {"metric": "calendar_forecast_year", "value": next_year},
+        {"metric": "calendar_forecast_history_start_year", "value": min(historical_years)},
+        {"metric": "calendar_forecast_history_end_year", "value": max(historical_years)},
+        {"metric": "calendar_forecast_ytd_months_used", "value": int(ref.month - 1)},
+        {"metric": "calendar_forecast_customer_group_rows", "value": len(forecast)},
+        {"metric": "calendar_forecast_monthly_rows", "value": len(monthly_forecast)},
+    ])
+    return result, monthly_forecast, quality
 
 
 def add_product_recommendation_columns(customer_potential: pd.DataFrame, recommendations: pd.DataFrame) -> pd.DataFrame:
@@ -773,7 +863,7 @@ def add_product_recommendation_columns(customer_potential: pd.DataFrame, recomme
 def build_args() -> SimpleNamespace:
     # Keep the locked legacy workbook untouched; calendar-year runs get a
     # separate export that can be reviewed while OneDrive syncs the old file.
-    output_xlsx = POTENTIAL_DIR / "current_customer_potential_with_product_groups_new_sources_calendar_year.xlsx"
+    output_xlsx = POTENTIAL_DIR / "current_customer_potential_with_product_groups_new_sources_monthly_calendar_year.xlsx"
     return SimpleNamespace(
         crm_potentials=str(CRM_PATH),
         product_grouping=str(PRODUCT_MASTER_PATH),
@@ -844,7 +934,13 @@ def main() -> None:
     crm_features, matched_features = runner.prepare_customer_features(inputs["crm"], inputs["accounts"], artifacts["all_scored"])
     customer_potential = runner.score_current_customers(crm_features, artifacts["all_scored"])
     customer_potential = runner.collapse_to_one_row_per_customer(customer_potential)
-    customer_potential = enrich_customer_potential(customer_potential, artifacts["reference_date"])
+    customer_potential = enrich_customer_potential(customer_potential)
+    customer_potential, calendar_forecast_monthly, calendar_quality = add_calendar_year_forecast(
+        customer_potential,
+        inputs["sales"],
+        inputs["accounts"],
+        artifacts["reference_date"],
+    )
     recommendations, product_quality = runner.build_product_group_recommendations(
         customer_potential,
         inputs["sales"],
@@ -868,7 +964,7 @@ def main() -> None:
         for name in artifacts["feature_columns"]
         if name in artifacts["modeling_df"].columns
     }
-    product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, context_quality, product_quality, pd.DataFrame([
+    product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, context_quality, calendar_quality, product_quality, pd.DataFrame([
         {"metric": "source_sales_rows", "value": len(raw_sales)},
         {"metric": "eligible_sales_rows_before_value_filter", "value": int(eligible_sales.sum())},
         {"metric": "excluded_negative_sales_rows", "value": int((eligible_sales & raw_sales["total_value"].lt(0)).sum())},
@@ -886,6 +982,7 @@ def main() -> None:
     runner.write_outputs(customer_potential, recommendations, validation, run_log, data_quality, args)
     product_recommendations.to_csv(POTENTIAL_DIR / "product_recommendations_new_sources.csv", index=False, encoding="utf-8-sig")
     product_summary.to_csv(POTENTIAL_DIR / "top_recommended_products_new_sources.csv", index=False, encoding="utf-8-sig")
+    calendar_forecast_monthly.to_csv(POTENTIAL_DIR / "calendar_year_2027_forecast_monthly_new_sources.csv", index=False, encoding="utf-8-sig")
     new_summary = product_summary.loc[product_summary["recommendation_type"].eq("new")]
     new_summary.loc[new_summary["ProductCode"].str.startswith("IF")].head(10).to_csv(POTENTIAL_DIR / "top_10_if_products_new_sources.csv", index=False, encoding="utf-8-sig")
     new_summary.loc[new_summary["ProductCode"].str.startswith("DIF")].head(10).to_csv(POTENTIAL_DIR / "top_10_dif_products_new_sources.csv", index=False, encoding="utf-8-sig")
@@ -894,6 +991,7 @@ def main() -> None:
         product_summary.to_excel(writer, sheet_name="top_recommended_products", index=False)
         new_summary.loc[new_summary["ProductCode"].str.startswith("IF")].head(10).to_excel(writer, sheet_name="top_10_IF_products", index=False)
         new_summary.loc[new_summary["ProductCode"].str.startswith("DIF")].head(10).to_excel(writer, sheet_name="top_10_DIF_products", index=False)
+        calendar_forecast_monthly.to_excel(writer, sheet_name="calendar_2027_monthly", index=False)
     print(json.dumps({
         "output_xlsx": args.output_xlsx,
         "customer_rows": len(customer_potential),

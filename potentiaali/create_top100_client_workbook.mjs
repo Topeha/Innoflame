@@ -5,7 +5,7 @@ const root = "C:/Users/TommiHavukainen/OneDrive - Unikie Oy/Customer/Innoflame";
 const potentialDir = `${root}/potentiaali`;
 const sourceCsv = `${potentialDir}/current_customer_potential_new_sources.csv`;
 const recommendationCsv = `${potentialDir}/product_recommendations_new_sources.csv`;
-const sourceXlsx = `${potentialDir}/current_customer_potential_with_product_groups_new_sources_calendar_year.xlsx`;
+const sourceXlsx = `${potentialDir}/current_customer_potential_with_product_groups_new_sources_monthly_calendar_year.xlsx`;
 const outputPath = `${potentialDir}/Innoflame_Top100_asiakkaat_katselmointi_calendar_year.xlsx`;
 
 function parseCsv(text) {
