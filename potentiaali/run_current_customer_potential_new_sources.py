@@ -731,7 +731,10 @@ def runner_normalize_business_id(value: object) -> str | None:
     return f"{digits[:-1]}-{digits[-1]}" if len(digits) >= 8 else None
 
 
-def enrich_customer_potential(customer_potential: pd.DataFrame) -> pd.DataFrame:
+def enrich_customer_potential(
+    customer_potential: pd.DataFrame,
+    reference_date: object | None = None,
+) -> pd.DataFrame:
     frame = customer_potential.copy()
     current = pd.to_numeric(frame.get("recent_12m", 0.0), errors="coerce").fillna(0.0)
     next_12m = pd.to_numeric(frame.get("expected_potential_eur", 0.0), errors="coerce").fillna(0.0)
@@ -739,6 +742,16 @@ def enrich_customer_potential(customer_potential: pd.DataFrame) -> pd.DataFrame:
     frame["PotentialSalesNext12MonthsEUR"] = next_12m
     frame["PotentialGrowthEUR"] = (next_12m - current).clip(lower=0.0)
     frame["PotentialGrowthPercent"] = np.where(current.gt(0), frame["PotentialGrowthEUR"] / current, 0.0)
+    # The existing model is an annual expected-value model without monthly
+    # seasonality. Keep the rolling 12-month result unchanged and expose the
+    # same annual value under the next calendar year for reporting clarity.
+    ref = pd.Timestamp(reference_date) if reference_date is not None else pd.Timestamp.today()
+    frame["PotentialNextCalendarYear"] = int(ref.year + 1)
+    frame["PotentialSalesNextCalendarYearEUR"] = next_12m
+    frame["PotentialGrowthNextCalendarYearEUR"] = (next_12m - current).clip(lower=0.0)
+    frame["PotentialGrowthNextCalendarYearPercent"] = np.where(
+        current.gt(0), frame["PotentialGrowthNextCalendarYearEUR"] / current, 0.0
+    )
     model_score = pd.to_numeric(frame.get("score", 0.0), errors="coerce").fillna(0.0)
     probability = pd.to_numeric(frame.get("probability_of_growth", 0.0), errors="coerce").fillna(0.0)
     frame["PotentialScore"] = ((model_score * 0.7 + probability * 0.3).clip(0.0, 1.0) * 100).round(1)
@@ -758,7 +771,9 @@ def add_product_recommendation_columns(customer_potential: pd.DataFrame, recomme
 
 
 def build_args() -> SimpleNamespace:
-    output_xlsx = POTENTIAL_DIR / "current_customer_potential_with_product_groups_new_sources.xlsx"
+    # Keep the locked legacy workbook untouched; calendar-year runs get a
+    # separate export that can be reviewed while OneDrive syncs the old file.
+    output_xlsx = POTENTIAL_DIR / "current_customer_potential_with_product_groups_new_sources_calendar_year.xlsx"
     return SimpleNamespace(
         crm_potentials=str(CRM_PATH),
         product_grouping=str(PRODUCT_MASTER_PATH),
@@ -829,7 +844,7 @@ def main() -> None:
     crm_features, matched_features = runner.prepare_customer_features(inputs["crm"], inputs["accounts"], artifacts["all_scored"])
     customer_potential = runner.score_current_customers(crm_features, artifacts["all_scored"])
     customer_potential = runner.collapse_to_one_row_per_customer(customer_potential)
-    customer_potential = enrich_customer_potential(customer_potential)
+    customer_potential = enrich_customer_potential(customer_potential, artifacts["reference_date"])
     recommendations, product_quality = runner.build_product_group_recommendations(
         customer_potential,
         inputs["sales"],
