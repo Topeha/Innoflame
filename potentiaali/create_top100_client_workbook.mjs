@@ -5,8 +5,8 @@ const root = "C:/Users/TommiHavukainen/OneDrive - Unikie Oy/Customer/Innoflame";
 const potentialDir = `${root}/potentiaali`;
 const sourceCsv = `${potentialDir}/current_customer_potential_new_sources.csv`;
 const recommendationCsv = `${potentialDir}/product_recommendations_new_sources.csv`;
-const sourceXlsx = `${potentialDir}/current_customer_potential_with_product_groups_new_sources.xlsx`;
-const outputPath = `${potentialDir}/Innoflame_Top100_asiakkaat_katselmointi.xlsx`;
+const sourceXlsx = `${potentialDir}/current_customer_potential_with_product_groups_new_sources_calendar_year.xlsx`;
+const outputPath = `${potentialDir}/Innoflame_Top100_asiakkaat_katselmointi_calendar_year.xlsx`;
 
 function parseCsv(text) {
   const rows = [];
@@ -122,28 +122,29 @@ overview.getRange("A:A").format.columnWidth = 28;
 overview.getRange("B:B").format.columnWidth = 34;
 overview.getRange("A12:H12").format.rowHeight = 34;
 
-styleTitle(topSheet, "Top 100 asiakkaat", "Järjestetty seuraavan 12 kuukauden potentiaalin mukaan", "N");
-const topHeaders = ["Sija", "Yritys", "Y-tunnus", "Nykyinen myynti (€)", "Potentiaali 12 kk (€)", "Kasvupotentiaali (€)", "Kasvupotentiaali (%)", "Potentiaaliscore", "Prioriteetti", "Nykyinen tuotesuositus 1", "Nykyinen tuotesuositus 1 (€)", "Uusi tuotesuositus 1", "Uusi tuotesuositus 1 (€)", "Segmentti"];
+styleTitle(topSheet, "Top 100 asiakkaat", "Rullaava 12 kk ja seuraavan kalenterivuoden potentiaali", "Q");
+const topHeaders = ["Sija", "Yritys", "Y-tunnus", "Nykyinen myynti (€)", "Potentiaali 12 kk (€)", "Kasvupotentiaali 12 kk (€)", "Kalenterivuosi", "Potentiaali kalenterivuosi (€)", "Kasvupotentiaali kalenterivuosi (€)", "Potentiaaliscore", "Prioriteetti", "Nykyinen tuotesuositus 1", "Nykyinen tuotesuositus 1 (€)", "Uusi tuotesuositus 1", "Uusi tuotesuositus 1 (€)", "Segmentti", "Kasvupotentiaali 12 kk (%)"];
 const topRows = top100.map((row, index) => [
-  index + 1, row.Name, row.business_id, number(row.CurrentSalesEUR), number(row.PotentialSalesNext12MonthsEUR), number(row.PotentialGrowthEUR), pct(row.PotentialGrowthPercent), number(row.PotentialScore), row.SalesPriority,
-  row.TopCurrentProductRecommendation1, number(row.TopCurrentProductRecommendation1PotentialEUR), row.TopNewProductRecommendation1, number(row.TopNewProductRecommendation1PotentialEUR), row.company_segment,
+  index + 1, row.Name, row.business_id, number(row.CurrentSalesEUR), number(row.PotentialSalesNext12MonthsEUR), number(row.PotentialGrowthEUR), number(row.PotentialNextCalendarYear), number(row.PotentialSalesNextCalendarYearEUR), number(row.PotentialGrowthNextCalendarYearEUR), number(row.PotentialScore), row.SalesPriority,
+  row.TopCurrentProductRecommendation1, number(row.TopCurrentProductRecommendation1PotentialEUR), row.TopNewProductRecommendation1, number(row.TopNewProductRecommendation1PotentialEUR), row.company_segment, pct(row.PotentialGrowthPercent),
 ]);
 topSheet.getRange(`A4:${columnLetter(topHeaders.length - 1)}4`).values = [topHeaders];
 topSheet.getRange(`A5:${columnLetter(topHeaders.length - 1)}${4 + topRows.length}`).values = topRows;
 formatHeader(topSheet.getRange(`A4:${columnLetter(topHeaders.length - 1)}4`));
 topSheet.getRange(`D5:F${4 + topRows.length}`).format.numberFormat = "#,##0 €";
-topSheet.getRange(`G5:G${4 + topRows.length}`).format.numberFormat = "0.0%";
-topSheet.getRange(`H5:H${4 + topRows.length}`).format.numberFormat = "0.0";
-topSheet.getRange(`K5:K${4 + topRows.length}`).format.numberFormat = "#,##0 €";
+topSheet.getRange(`H5:I${4 + topRows.length}`).format.numberFormat = "#,##0 €";
+topSheet.getRange(`Q5:Q${4 + topRows.length}`).format.numberFormat = "0.0%";
+topSheet.getRange(`J5:J${4 + topRows.length}`).format.numberFormat = "0.0";
 topSheet.getRange(`M5:M${4 + topRows.length}`).format.numberFormat = "#,##0 €";
-topSheet.getRange(`I5:I${4 + topRows.length}`).conditionalFormats.add("containsText", { text: "High", format: { fill: "#E2F0D9", font: { bold: true, color: "#375623" } } });
-topSheet.getRange(`I5:I${4 + topRows.length}`).conditionalFormats.add("containsText", { text: "Medium", format: { fill: "#FFF2CC", font: { color: "#7F6000" } } });
-const topTable = topSheet.tables.add(`A4:N${4 + topRows.length}`, true, "Top100Customers");
+topSheet.getRange(`O5:O${4 + topRows.length}`).format.numberFormat = "#,##0 €";
+topSheet.getRange(`K5:K${4 + topRows.length}`).conditionalFormats.add("containsText", { text: "High", format: { fill: "#E2F0D9", font: { bold: true, color: "#375623" } } });
+topSheet.getRange(`K5:K${4 + topRows.length}`).conditionalFormats.add("containsText", { text: "Medium", format: { fill: "#FFF2CC", font: { color: "#7F6000" } } });
+const topTable = topSheet.tables.add(`A4:Q${4 + topRows.length}`, true, "Top100Customers");
 topTable.style = "TableStyleMedium2";
 topSheet.freezePanes.freezeRows(4);
-const widths = [8, 28, 14, 17, 18, 18, 17, 15, 13, 30, 18, 30, 18, 18];
+const widths = [8, 28, 14, 17, 18, 20, 14, 20, 23, 15, 13, 30, 18, 30, 18, 18, 17];
 widths.forEach((width, index) => { topSheet.getRange(`${columnLetter(index)}:${columnLetter(index)}`).format.columnWidth = width; });
-topSheet.getRange(`A4:N${4 + topRows.length}`).format.wrapText = true;
+topSheet.getRange(`A4:Q${4 + topRows.length}`).format.wrapText = true;
 
 styleTitle(recSheet, "Top 100 asiakkaiden tuotesuositukset", "Nykyiset ja uudet tuotteet asiakaskohtaisesti", "K");
 const recHeaders = ["Asiakas", "Y-tunnus", "Tyyppi", "Sija", "Tuotekoodi", "Tuote", "Tuoteryhmä", "Potentiaali (€)", "Ostotodennäköisyys", "Sopivuus", "Perustelu"];
