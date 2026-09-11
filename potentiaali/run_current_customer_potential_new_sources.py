@@ -29,7 +29,7 @@ PROFINDER_PATH = POTENTIAL_DIR / "haku_Prospektointimasterlista_2026-08-12.xlsx"
 PROFINDER_WORKING_COPY_PATH = POTENTIAL_DIR / "haku_Prospektointimasterlista_2026-08-12_working_copy.xlsx"
 if PROFINDER_WORKING_COPY_PATH.exists():
     PROFINDER_PATH = PROFINDER_WORKING_COPY_PATH
-PRODUCT_MASTER_PATH = POTENTIAL_DIR / "INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx"
+PRODUCT_MASTER_PATH = ROOT / "tuoteryhmittely" / "INNOFLAME-TUOTELISTA-TUOTERYHMITTELY.xlsx"
 ACCOUNTS_PATH = POTENTIAL_DIR / "Account_20.05.2026_combined_with_profinder.xlsx"
 ACCOUNTS_WORKING_COPY_PATH = POTENTIAL_DIR / "Account_20.05.2026_combined_with_profinder_working_copy.xlsx"
 if ACCOUNTS_WORKING_COPY_PATH.exists():
@@ -115,7 +115,7 @@ def prepare_product_grouping(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     if missing:
         raise ValueError(f"Product master is missing required columns: {missing}")
 
-    group_col = "Koko ryhmäpolku" if "Koko ryhmäpolku" in raw.columns else "Tuoteryhmä"
+    group_col = "Tuoteryhmä"
     grouping = pd.DataFrame(
         {
             "sku": raw["Tuotekoodi"].fillna("").astype("string").str.strip(),
@@ -860,6 +860,103 @@ def add_product_recommendation_columns(customer_potential: pd.DataFrame, recomme
     return frame
 
 
+def build_next_product_group_recommendations(
+    customer_potential: pd.DataFrame,
+    sales: pd.DataFrame,
+    accounts: pd.DataFrame,
+    product_grouping: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Recommend two not-yet-purchased groups without changing potential scores."""
+    master = product_grouping.copy()
+    master["product_code"] = master["sku"].map(_normalise_product_code)
+    master["product_group"] = master["product_group_l1_name"].fillna("").astype("string").str.strip()
+    master["product_name"] = master["product_name"].fillna("").astype("string").str.strip()
+    master = master.loc[master["product_code"].ne("") & master["product_group"].ne("")].drop_duplicates("product_code")
+
+    account_frame = accounts.copy()
+    account_id_col = runner_resolve_column(account_frame, ["id", "account_id", "account id"])
+    business_col = runner_resolve_column(account_frame, ["business id", "business_id", "y tunnus", "y-tunnus"])
+    if account_id_col is None or business_col is None:
+        raise ValueError("Accounts file must contain account ID and business ID columns.")
+    account_keys = account_frame[[account_id_col, business_col]].copy()
+    account_keys.columns = ["account_id", "business_id"]
+    account_keys["account_id"] = pd.to_numeric(account_keys["account_id"], errors="coerce")
+    account_keys["business_id"] = account_keys["business_id"].map(runner_normalize_business_id)
+    account_keys = account_keys.dropna(subset=["account_id", "business_id"]).drop_duplicates("account_id")
+
+    sales_frame = sales.copy()
+    sales_frame["account_id"] = pd.to_numeric(sales_frame["account_id"], errors="coerce")
+    sales_frame["product_code"] = sales_frame.get("sku", pd.Series("", index=sales_frame.index)).map(_normalise_product_code)
+    sales_frame["sales_eur"] = pd.to_numeric(sales_frame["total_value"], errors="coerce").fillna(0.0)
+    sales_frame = sales_frame.merge(account_keys, on="account_id", how="left")
+    sales_frame = sales_frame.merge(master[["product_code", "product_group", "product_name"]], on="product_code", how="left")
+    sales_frame = sales_frame.loc[
+        sales_frame["business_id"].notna()
+        & sales_frame["product_code"].ne("")
+        & sales_frame["product_group"].notna()
+        & sales_frame["product_group"].ne("")
+        & sales_frame["sales_eur"].gt(0)
+    ].copy()
+
+    customer_rows = customer_potential.dropna(subset=["business_id"]).drop_duplicates("business_id").copy()
+    if customer_rows.empty or sales_frame.empty:
+        empty = pd.DataFrame(columns=["business_id", "Suositus_Tuoteryhma_1", "Suositus_Tuote_1", "Suositus_Tuoteryhma_2", "Suositus_Tuote_2"])
+        return empty, pd.DataFrame([{"metric": "next_product_group_recommendation_rows", "value": 0}])
+
+    group_customer_counts = sales_frame.groupby("product_group")["business_id"].nunique()
+    group_sales = sales_frame.groupby("product_group")["sales_eur"].sum()
+    product_sales = sales_frame.groupby(["product_group", "product_code", "product_name"], as_index=False)["sales_eur"].sum()
+    example_products = (
+        product_sales.loc[product_sales["product_code"].str.startswith(("IF", "DIF"))]
+        .sort_values(["product_group", "sales_eur", "product_code"], ascending=[True, False, True], kind="mergesort")
+        .drop_duplicates("product_group")
+        .set_index("product_group")
+    )
+
+    output_rows: list[dict[str, object]] = []
+    for row in customer_rows.itertuples(index=False):
+        business_id = row.business_id
+        segment = getattr(row, "company_segment", None)
+        peer_rows = customer_rows.loc[customer_rows["company_segment"].eq(segment)] if "company_segment" in customer_rows.columns else customer_rows
+        peer_ids = set(peer_rows["business_id"].dropna()) or {business_id}
+        peer_sales = sales_frame.loc[sales_frame["business_id"].isin(peer_ids)]
+        if peer_sales.empty:
+            peer_sales = sales_frame
+        peer_group_customer_counts = peer_sales.groupby("product_group")["business_id"].nunique()
+        peer_group_sales = peer_sales.groupby("product_group")["sales_eur"].sum()
+        peer_count = max(len(peer_ids), 1)
+        peer_total_sales = float(peer_group_sales.sum()) or 1.0
+        owned_groups = set(sales_frame.loc[sales_frame["business_id"].eq(business_id), "product_group"])
+        candidates = pd.DataFrame({"group": peer_group_customer_counts.index})
+        candidates["adoption"] = candidates["group"].map(peer_group_customer_counts).fillna(0).div(peer_count)
+        candidates["sales_share"] = candidates["group"].map(peer_group_sales).fillna(0).div(peer_total_sales)
+        candidates["score"] = 0.70 * candidates["adoption"] + 0.30 * candidates["sales_share"]
+        candidates = candidates.loc[~candidates["group"].isin(owned_groups)].sort_values(["score", "adoption", "sales_share", "group"], ascending=[False, False, False, True], kind="mergesort").head(2)
+        values = []
+        for group in candidates["group"]:
+            example = example_products.loc[group] if group in example_products.index else None
+            values.append((str(group), str(example["product_name"]) if example is not None else ""))
+        while len(values) < 2:
+            values.append(("", ""))
+        output_rows.append({
+            "business_id": business_id,
+            "Suositus_Tuoteryhma_1": values[0][0],
+            "Suositus_Tuote_1": values[0][1],
+            "Suositus_Tuoteryhma_2": values[1][0],
+            "Suositus_Tuote_2": values[1][1],
+        })
+
+    recommendations = pd.DataFrame(output_rows)
+    quality = pd.DataFrame([
+        {"metric": "next_product_group_recommendation_rows", "value": len(recommendations)},
+        {"metric": "next_product_group_master_products", "value": len(master)},
+        {"metric": "next_product_group_master_groups", "value": int(master["product_group"].nunique())},
+        {"metric": "next_product_group_example_products_if_dif", "value": len(example_products)},
+        {"metric": "next_product_group_probability_uses_all_products", "value": True},
+    ])
+    return recommendations, quality
+
+
 def build_args() -> SimpleNamespace:
     # Keep the locked legacy workbook untouched; calendar-year runs get a
     # separate export that can be reviewed while OneDrive syncs the old file.
@@ -955,7 +1052,14 @@ def main() -> None:
         product_grouping,
         max_recommendations_per_customer=args.max_recommendations_per_customer,
     )
+    next_group_recommendations, next_group_quality = build_next_product_group_recommendations(
+        customer_potential,
+        inputs["sales"],
+        inputs["accounts"],
+        product_grouping,
+    )
     customer_potential = add_product_recommendation_columns(customer_potential, product_recommendations)
+    customer_potential = customer_potential.merge(next_group_recommendations, on="business_id", how="left")
     validation = runner.validate_against_crm(customer_potential, artifacts["all_scored"])
     customer_potential = runner.remove_requested_crm_columns(customer_potential)
     validation = runner.remove_requested_crm_columns(validation)
@@ -964,7 +1068,7 @@ def main() -> None:
         for name in artifacts["feature_columns"]
         if name in artifacts["modeling_df"].columns
     }
-    product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, context_quality, calendar_quality, product_quality, pd.DataFrame([
+    product_quality = pd.concat([master_quality, product_code_quality, product_name_quality, context_quality, calendar_quality, product_quality, next_group_quality, pd.DataFrame([
         {"metric": "source_sales_rows", "value": len(raw_sales)},
         {"metric": "eligible_sales_rows_before_value_filter", "value": int(eligible_sales.sum())},
         {"metric": "excluded_negative_sales_rows", "value": int((eligible_sales & raw_sales["total_value"].lt(0)).sum())},

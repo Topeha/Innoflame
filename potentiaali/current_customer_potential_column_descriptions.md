@@ -36,6 +36,12 @@ Paataulu nykyasiakkaista: yksi rivi per asiakas, mallipisteytys, euromaarainen p
 - `customer_potential_rank`: Nykyasiakasoutputin sisainen sijoitus mallipotentiaalin mukaan. Pienempi luku on parempi.
 - `crm_source_row_count`: Kuinka monesta alkuperaisen CRM-validointiaineiston rivista tama asiakaskohtainen rivi muodostettiin.
 - `crm_source_input_row_ids`: Alkuperaisten CRM-rivien _input_row_id-arvot, jotka yhdistettiin tahan asiakasriviin.
+- `Suositus_Tuoteryhma_1`: Todennakoisin asiakkaan seuraavaksi ostama tuoteryhma. Lasketaan saman yrityssegmentin asiakkaiden ostokayttaytymisen perusteella, ja asiakkaan jo ostamat tuoteryhmat poistetaan ehdokkaista.
+- `Suositus_Tuote_1`: Esimerkkituote ensimmaisesta suositellusta tuoteryhmasta. Tuotekoodin tulee alkaa `IF` tai `DIF`; rajaus koskee vain esimerkkituotteen nayttamista.
+- `Suositus_Tuoteryhma_2`: Toiseksi todennakoisin asiakkaan seuraavaksi ostama tuoteryhma samalla logiikalla.
+- `Suositus_Tuote_2`: Esimerkkituote toisesta suositellusta tuoteryhmasta. Tuotekoodin tulee alkaa `IF` tai `DIF`.
+
+Tuoteryhmasuositusten todennakoisyyslaskennassa kaytetaan tuoteryhma-aineiston kaikkia tuotteita ja kaikkia `Tuoteryhma`-arvoja. Tuoteryhmat liitetaan myyntihistoriaan `Tuotekoodi`-avaimella. Suositusvaihe ei muuta `score`-, potentiaali-, segmentointi- tai rank-kenttia.
 
 ## current_customer_potential_with_product_groups_one_row_per_customer.xlsx / product_group_recommendations
 
