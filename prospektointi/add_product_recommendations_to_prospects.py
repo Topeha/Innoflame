@@ -115,14 +115,20 @@ def main() -> None:
         selected = []
         for group in candidates["group"]:
             example = examples.loc[group] if group in examples.index else None
-            selected.append((str(group), str(example["product_name"]) if example is not None else ""))
-        selected += [("", "")] * (2 - len(selected))
+            selected.append((
+                str(group),
+                str(example["product_code"]) if example is not None else "",
+                str(example["product_name"]) if example is not None else "",
+            ))
+        selected += [("", "", "")] * (2 - len(selected))
         results.append({
             "business_id": business_id,
             "Suositus_Tuoteryhma_1": selected[0][0],
-            "Suositus_Tuote_1": selected[0][1],
+            "Suositus_Tuote_Koodi_1": selected[0][1],
+            "Suositus_Tuote_1": selected[0][2],
             "Suositus_Tuoteryhma_2": selected[1][0],
-            "Suositus_Tuote_2": selected[1][1],
+            "Suositus_Tuote_Koodi_2": selected[1][1],
+            "Suositus_Tuote_2": selected[1][2],
         })
 
     recommendations = pd.DataFrame(results)

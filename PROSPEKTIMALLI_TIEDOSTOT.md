@@ -157,7 +157,7 @@ Tuoteryhmäsuositukset lisätään erillisellä komennolla:
 python prospektointi\add_product_recommendations_to_prospects.py
 ```
 
-Komento tuottaa tiedoston `prospect_segment_model_all_prospects_final_with_product_recommendations.csv`. Suositusten laskenta käyttää nykyasiakkaiden segmenttikohtaista ostohistoriaa ja kaikkia tuoteryhmiä. `IF`- ja `DIF`-alkuisten tuotekoodien rajoitus koskee vain näytettävän esimerkkituotteen valintaa. Komento ei muuta prospektin scorea, potentiaalia, segmenttiä tai rankia.
+Komento tuottaa tiedoston `prospect_segment_model_all_prospects_final_with_product_recommendations.csv`. Suositusten laskenta käyttää nykyasiakkaiden segmenttikohtaista ostohistoriaa ja kaikkia tuoteryhmiä. `IF`- ja `DIF`-alkuisten tuotekoodien rajoitus koskee vain näytettävän esimerkkituotteen valintaa. Komento ei muuta prospektin scorea, potentiaalia, segmenttiä tai rankia. Esimerkkituotteen nimi ja koodi tallennetaan erikseen kenttiin `Suositus_Tuote_1` / `Suositus_Tuote_Koodi_1` ja `Suositus_Tuote_2` / `Suositus_Tuote_Koodi_2`.
 
 Tärkeimmät kentät:
 
