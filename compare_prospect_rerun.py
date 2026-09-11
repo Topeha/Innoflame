@@ -8,9 +8,10 @@ import pandas as pd
 
 BASE = Path(__file__).resolve().parent / "prospektointi"
 OLD_CSV = BASE / "prospect_segment_model_all_prospects.csv"
-NEW_CSV = BASE / "prospect_segment_model_all_prospects_corrected_sales_rerun.csv"
-OUT_JSON = BASE / "prospect_segment_model_all_prospects_corrected_sales_rerun_comparison.json"
-OUT_CSV = BASE / "prospect_segment_model_all_prospects_corrected_sales_rerun_comparison.csv"
+NEW_CSV = BASE / "prospect_segment_model_all_prospects_latest_profinder_corrected_sales_without_netvisor.csv"
+METRICS_FILE = BASE / "prospect_segment_model_all_prospects_latest_profinder_corrected_sales.metrics.json"
+OUT_JSON = BASE / "prospect_segment_model_all_prospects_latest_profinder_without_netvisor_comparison.json"
+OUT_CSV = BASE / "prospect_segment_model_all_prospects_latest_profinder_without_netvisor_comparison.csv"
 
 
 def summary(frame: pd.DataFrame, label: str) -> dict[str, object]:
@@ -84,7 +85,7 @@ def main() -> None:
         "new_summary": new_summary,
         "comparison": comparison,
         "overlap": overlaps,
-        "new_metrics": json.loads(NEW_CSV.with_suffix(".metrics.json").read_text(encoding="utf-8")),
+        "new_metrics": json.loads(METRICS_FILE.read_text(encoding="utf-8")),
         "sales_audit": json.loads(
             (BASE / "sales_import_test" / "GoSystems_sales_26_05_2026_model_input_corrected.audit.json").read_text(
                 encoding="utf-8"
