@@ -22,14 +22,15 @@ Mallia käytetään priorisointiin. Potentiaali ei ole lupaus tulevasta myynnist
 
 ## Nykyinen viimeisin ajo
 
-- Myyntiaineisto: `GoSystems_sales_26_05_2026_summarized.csv`
+- Myyntiaineisto: `prospektointi/sales_import_test/GoSystems_sales_26_05_2026_model_input_corrected.csv`
 - Mallin kuukausisyöte: `prospektointi/sales_import_test/GoSystems_sales_26_05_2026_model_input_corrected.csv`
-- Yritysdata: `haku_Myyntiin_ai_2026-04-23 (1).xlsx`
-- Asiakasdata: `Account_20.05.2026_combined_with_profinder.xlsx`
-- Poistolista: `Netvisor asiakastiedot 6-2026.xlsx`
-- Tulokset: `prospektointi/prospect_segment_model_all_prospects_corrected_sales_rerun.csv`
+- Profinder-yritysdata: `potentiaali/haku_Prospektointimasterlista_2026-08-12.xlsx`
+- Asiakasdata: `potentiaali/Account_20.05.2026_combined_with_profinder.xlsx`
+- Poistolista: `potentiaali/Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx`
+- Mallin raakatulos: `prospektointi/prospect_segment_model_all_prospects_latest_profinder_corrected_sales.csv`
+- Lopullinen uusi lista: `prospektointi/prospect_segment_model_all_prospects_final_without_netvisor.csv`
 
-Uusinta-ajossa oli 1 956 prospektia. Kokonaispotentiaali oli 41,86 M€ ja Top 100 -listan päällekkäisyys aiempaan ajoon nähden 95 %.
+Uusimmassa malliajossa oli 7 545 prospektia ennen jälkisuodatuksia. Lopullisessa uudessa listassa on 4 563 yritystä, kun Netvisorissa olevat ja aiemmalla prospektilistalla olleet yritykset on poistettu.
 
 ## Nopein aloitus
 
@@ -37,11 +38,11 @@ Lue ensin tekninen kuvaus ja sen jälkeen myynnin koulutusmateriaali. Mallin ajo
 
 ```powershell
 python prospektointi\prospect_model.py `
-  --accounts "Account_20.05.2026_combined_with_profinder.xlsx" `
+  --accounts "potentiaali\Account_20.05.2026_combined_with_profinder.xlsx" `
   --sales "prospektointi\sales_import_test\GoSystems_sales_26_05_2026_model_input_corrected.csv" `
-  --companies "haku_Myyntiin_ai_2026-04-23 (1).xlsx" `
-  --exclude-business-ids-file "Netvisor asiakastiedot 6-2026.xlsx" `
-  --output "prospektointi\prospect_segment_model_all_prospects_corrected_sales_rerun.csv" `
+  --companies "potentiaali\haku_Prospektointimasterlista_2026-08-12.xlsx" `
+  --exclude-business-ids-file "potentiaali\Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx" `
+  --output "prospektointi\prospect_segment_model_all_prospects_latest_profinder_corrected_sales.csv" `
   --top-n-customers 1000 `
   --lookback-days 1095 `
   --random-state 42

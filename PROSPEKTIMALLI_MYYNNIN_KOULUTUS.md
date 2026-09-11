@@ -58,7 +58,7 @@ Signaalit ovat keskustelun aloituspiste, eivät lopullinen perustelu siitä, ett
 
 ### Vaihe 1: Aloita A-listasta
 
-Älä aloita koko 1 956 yrityksen läpikäynnillä. Aloita Top 100:sta ja jaa yritykset myyjille tai käyttötapauksille.
+Älä aloita koko listan läpikäynnillä. Aloita Top 100:sta ja jaa yritykset myyjille tai käyttötapauksille. Lopullinen uusi lista sisältää 4 563 yritystä.
 
 ### Vaihe 2: Tarkista yritys ennen yhteydenottoa
 

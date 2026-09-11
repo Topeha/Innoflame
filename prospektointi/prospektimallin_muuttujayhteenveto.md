@@ -8,12 +8,12 @@ Tarkastelun pääkohde on `prospect_segment_model_all_prospects.csv`. Myynnille 
 
 | Lähde | Käyttö mallissa |
 | --- | --- |
-| `haku_Myyntiin_ai_2026-04-23 (1).xlsx` | Profinder-/yritysaineisto. Tästä tulevat yritysten perustiedot, yhteystiedot, toimiala, liikevaihto, henkilöstö, kasvutieto, sijainti ja emoyhtiötunnus. |
-| `Account_20.05.2026_combined_with_profinder.xlsx` | Nykyasiakkaiden tunnistus, asiakasstatus, Account ID -liitos myyntidataan ja konsernipoistot. |
-| `GoSystems_sales_26_05_2026_summarized.csv` | Myyntihistoria. Tästä lasketaan asiakkaiden 3 vuoden myynti ja vuosikeskiarvo. |
-| `Netvisor asiakastiedot 6-2026.xlsx` | Ulkoinen poistolista: Y-tunnukset poistetaan prospektilistalta, jos ne löytyvät Netvisor-aineistosta. |
+| `potentiaali/haku_Prospektointimasterlista_2026-08-12.xlsx` | Uusin Profinder-/yritysaineisto. Tästä tulevat yritysten perustiedot, yhteystiedot, toimiala, liikevaihto, henkilöstö, kasvutieto, sijainti ja emoyhtiötunnus. |
+| `potentiaali/Account_20.05.2026_combined_with_profinder.xlsx` | Nykyasiakkaiden tunnistus, asiakasstatus, Account ID -liitos myyntidataan ja konsernipoistot. |
+| `prospektointi/sales_import_test/GoSystems_sales_26_05_2026_model_input_corrected.csv` | Päivitetty aggregoitu myyntihistoria. Tästä lasketaan asiakkaiden 3 vuoden myynti ja vuosikeskiarvo. |
+| `potentiaali/Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx` | Normalisoitu ulkoinen poistolista: Y-tunnukset poistetaan prospektilistalta, jos ne löytyvät Netvisor-aineistosta. |
 
-Y-tunnukset normalisoidaan mallissa samaan muotoon `1234567-8`: `FI`-alku poistetaan, pelkät numerot muutetaan väliviivalliseen muotoon ja Excelin numeroksi lukemat tunnukset käsitellään kokonaislukuina.
+Y-tunnukset normalisoidaan mallissa samaan muotoon `1234567-8`: `FI`-alku poistetaan, pelkät numerot muutetaan väliviivalliseen muotoon ja Excelin numeroksi lukemat tunnukset käsitellään kokonaislukuina. Tämä sama normalisointi tehdään Netvisor-jälkisuodatuksessa.
 
 ## Lopputiedoston muuttujat
 
@@ -60,7 +60,7 @@ Y-tunnukset normalisoidaan mallissa samaan muotoon `1234567-8`: `FI`-alku poiste
 | `label` | Mallin opetuksen tavoitemuuttuja. | `1`, jos nykyasiakas kuuluu top 1000 asiakkaaseen `avg_annual_sales_3y_eur`-arvon perusteella; muuten `0`. |
 | `growth_pct` | Liikevaihdon muutosprosentti. | Profinderin `Liikevaihdon muutos (prosenttia)`, muunnetaan numeroksi ja rajataan välille -100...200. |
 | `revenue_bucket` | Liikevaihdon malliluokka. | Ensisijaisesti `revenue_k_eur`: alle 1M, 1-5M, 5-20M, 20-100M, 100M+. Jos numeerinen arvo puuttuu, päätellään `revenue_class`-tekstistä. |
-| `headcount_bucket` | Henkilöstön malliluokka. | Ensisijaisesti päätellään `headcount_class`-tekstistä, muuten numeerisesta `headcount`-arvosta: 1-10, 10-50, 50-250, 250-1000, 1000+. |
+| `headcount_bucket` | Henkilöstön malliluokka. | Ensisijaisesti päätellään `headcount_class`-tekstistä, muuten numeerisesta `headcount`-arvosta: 1-10, 10-50, 50-250, 250-1000, 1000+. Profinderin `20-49` kuuluu luokkaan `10-50`. |
 | `revenue_per_employee` | Liikevaihto työntekijää kohden. | `revenue_k_eur * 1000 / headcount`, jos `headcount > 0`; muuten tyhjä. |
 | `excluded_current_customer` | Poistetaanko siksi, että yritys on nykyasiakas. | `business_id` löytyy Account-aineiston `Business ID` -joukosta. |
 | `excluded_external_business_id` | Poistetaanko ulkoisen poistolistan vuoksi. | `business_id` löytyy Netvisor-aineiston `Y-tunnus`-joukosta. |
@@ -108,4 +108,4 @@ Numeerisissa featureissä puuttuvat arvot täytetään mediaanilla ja arvot skaa
 
 - `score` ei yksin määrää lopullista järjestystä. Lopullinen järjestys perustuu `final_value_eur`-arvoon, jossa yhdistyvät mallin score, top-asiakkaiden segmenttimyynti ja yrityksen kokopohjainen baseline.
 - Kontaktitiedot ja alkuperäinen `Emoyhtiön Y-tunnus` ovat Profinder-lähtöisiä lisäsarakkeita. Niitä ei lasketa `prospect_model.py`-mallissa, vaan ne on lisätty lopputiedostoon lähdedatan perusteella.
-- Prospektit poistetaan ennen lopullista listaa, jos ne ovat nykyasiakkaita, nykyasiakkaan konserniyhtiöitä, Netvisor-aineistossa olevia asiakkaita tai manuaalisen nimipoistosäännön osumia.
+- Mallin raakatulos oli viimeisimmässä ajossa 7 545 yritystä. Prospektit poistetaan ennen lopullista uutta listaa, jos ne ovat nykyasiakkaita, nykyasiakkaan konserniyhtiöitä, Netvisor-aineistossa olevia asiakkaita, aiemmalla prospektilistalla olevia yrityksiä tai manuaalisen nimipoistosäännön osumia. Lopulliseen uuteen listaan jäi 4 563 yritystä.

@@ -7,22 +7,23 @@ Tämä dokumentti kuvaa mallin tarvitsemat tiedostot, niiden roolit, tärkeät s
 | Tiedosto | Rooli | Pakollinen ajossa |
 | --- | --- | --- |
 | `prospektointi/prospect_model.py` | Varsinainen pisteytys- ja potentiaalimalli | Kyllä |
-| `Account_20.05.2026_combined_with_profinder.xlsx` | GoSystemsin asiakasrekisteri ja asiakastilit | Kyllä |
+| `potentiaali/Account_20.05.2026_combined_with_profinder.xlsx` | GoSystemsin asiakasrekisteri ja asiakastilit | Kyllä |
 | `GoSystems_sales_26_05_2026_summarized.csv` | Korjattu GoSystems-myyntiaineisto | Kyllä, valmistelun lähde |
 | `prospektointi/sales_import_test/GoSystems_sales_26_05_2026_model_input_corrected.csv` | Mallin kuukausitason myyntisyöte | Kyllä |
-| `haku_Myyntiin_ai_2026-04-23 (1).xlsx` | Profinder-yritys- ja taloustiedot | Kyllä |
-| `Netvisor asiakastiedot 6-2026.xlsx` | Ulkoinen poistolista | Suositeltava |
+| `potentiaali/haku_Prospektointimasterlista_2026-08-12.xlsx` | Uusin Profinder-yritys- ja taloustieto | Kyllä |
+| `potentiaali/Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx` | Normalisoitu ulkoinen poistolista | Suositeltava |
 | `prospektointi/prepare_gosystems_sales_for_model.py` | Raakaa GoSystems-Exceliä varten tehtävä valmistelu | Tarvitaan raakasyötteessä |
 | `prospektointi/sales_import_test/GoSystems_sales_26_05_2026_model_input_corrected.audit.json` | Syötteen rivimäärä-, euro- ja aikaväliauditointi | Suositeltava |
-| `prospektointi/prospect_segment_model_all_prospects_corrected_sales_rerun.csv` | Uusi yrityskohtainen tuloslista | Tuloste |
-| `prospektointi/prospect_segment_model_all_prospects_corrected_sales_rerun.metrics.json` | Mallin validointimittarit ja poistolaskurit | Tuloste |
-| `prospektointi/prospect_segment_model_all_prospects_corrected_sales_rerun_comparison.csv` | Yrityskohtainen vertailu vanhaan ajoon | Vertailutuloste |
+| `prospektointi/prospect_segment_model_all_prospects_latest_profinder_corrected_sales.csv` | Uusin Profinder- ja myyntihistorian mallin raakatulos | Tuloste |
+| `prospektointi/prospect_segment_model_all_prospects_latest_profinder_corrected_sales.metrics.json` | Uusimman mallin validointimittarit ja poistolaskurit | Tuloste |
+| `prospektointi/prospect_segment_model_all_prospects_final_without_netvisor.csv` | Uusi prospektilista Netvisor- ja aiemman listan poistoilla | Tuloste |
+| `prospektointi/prospect_segment_model_all_prospects_latest_profinder_without_netvisor_comparison.csv` | Yrityskohtainen vertailu vanhaan ajoon | Vertailutuloste |
 | `Innoflame_prospektimalli_uusinta_vertailu.xlsx` | Myynnin Excel-yhteenveto | Jakelutiedosto |
 | `Innoflame_prospektimalli_uusinta_vertailu.pptx` | Johtoryhmä- ja myyntiesitys | Jakelutiedosto |
 
 ## 2. Asiakasrekisteri
 
-`Account_20.05.2026_combined_with_profinder.xlsx` sisältää asiakastilit ja niiden yritystunnisteet.
+`potentiaali/Account_20.05.2026_combined_with_profinder.xlsx` sisältää asiakastilit ja niiden yritystunnisteet.
 
 Mallin kannalta keskeiset sarakkeet ovat:
 
@@ -93,7 +94,7 @@ Valmistelu tuottaa:
 
 ## 4. Profinder-yritysdata
 
-`haku_Myyntiin_ai_2026-04-23 (1).xlsx` muodostaa pisteytettävän yritysjoukon. Keskeiset sarakkeet ovat:
+`potentiaali/haku_Prospektointimasterlista_2026-08-12.xlsx` muodostaa pisteytettävän yritysjoukon. Aineistossa on 10 715 yksilöityä Y-tunnusta ja keskeiset sarakkeet ovat:
 
 - `Y-tunnus`
 - `Virallinen nimi`
@@ -113,7 +114,7 @@ Y-tunnukset normalisoidaan muotoon `1234567-8`. Yritykset deduplikoidaan Y-tunnu
 
 ## 5. Poistolista
 
-`Netvisor asiakastiedot 6-2026.xlsx` luetaan ulkoisena Y-tunnuspoistolistana. Sen avulla voidaan poistaa prospektilistalta yritykset, joiden ei haluta tulevan myynnin työlistalle vaikka ne eivät löytyisi varsinaisesta GoSystems-asiakasrekisteristä.
+`potentiaali/Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx` luetaan ulkoisena Y-tunnuspoistolistana. Ennen vertailua tunnukset muunnetaan samaan muotoon, esimerkiksi `FI09508951` -> `0950895-1`.
 
 ## 6. Malliajo
 
@@ -123,11 +124,11 @@ Täysi ajo:
 
 ```powershell
 python prospektointi\prospect_model.py `
-  --accounts "Account_20.05.2026_combined_with_profinder.xlsx" `
+  --accounts "potentiaali\Account_20.05.2026_combined_with_profinder.xlsx" `
   --sales "prospektointi\sales_import_test\GoSystems_sales_26_05_2026_model_input_corrected.csv" `
-  --companies "haku_Myyntiin_ai_2026-04-23 (1).xlsx" `
-  --exclude-business-ids-file "Netvisor asiakastiedot 6-2026.xlsx" `
-  --output "prospektointi\prospect_segment_model_all_prospects_rerun.csv" `
+  --companies "potentiaali\haku_Prospektointimasterlista_2026-08-12.xlsx" `
+  --exclude-business-ids-file "potentiaali\Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx" `
+  --output "prospektointi\prospect_segment_model_all_prospects_latest_profinder_corrected_sales.csv" `
   --top-n-customers 1000 `
   --lookback-days 1095 `
   --random-state 42
@@ -146,7 +147,7 @@ Parametrit:
 
 ### Prospektilista
 
-`prospect_segment_model_all_prospects_corrected_sales_rerun.csv` sisältää yhden rivin per prospekti.
+`prospect_segment_model_all_prospects_latest_profinder_corrected_sales.csv` sisältää yhden rivin per mallin score-vaiheen prospekti. Myynnille tarkoitettu uusi lista on `prospect_segment_model_all_prospects_final_without_netvisor.csv`.
 
 Tärkeimmät kentät:
 

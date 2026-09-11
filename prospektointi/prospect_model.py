@@ -31,22 +31,22 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prospect potential model for top-customer lookalikes.")
     parser.add_argument(
         "--accounts",
-        default=str(base_dir / "Account_20.05.2026_combined_with_profinder.xlsx"),
+        default=str(base_dir.parent / "potentiaali" / "Account_20.05.2026_combined_with_profinder.xlsx"),
         help="Path to account master Excel file.",
     )
     parser.add_argument(
         "--sales",
-        default=str(base_dir / "GoSystems_sales_26_05_2026_summarized.csv"),
+        default=str(base_dir / "sales_import_test" / "GoSystems_sales_26_05_2026_model_input_corrected.csv"),
         help="Path to sales CSV file.",
     )
     parser.add_argument(
         "--companies",
-        default=str(base_dir / "haku_Myyntiin_ai_2026-04-23 (1).xlsx"),
+        default=str(base_dir.parent / "potentiaali" / "haku_Prospektointimasterlista_2026-08-12.xlsx"),
         help="Path to companies / Profinder Excel file.",
     )
     parser.add_argument(
         "--exclude-business-ids-file",
-        default=str(base_dir / "Netvisor asiakastiedot 6-2026.xlsx"),
+        default=str(base_dir.parent / "potentiaali" / "Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx"),
         help="Optional Excel/CSV file whose Y-tunnus values are excluded from prospects.",
     )
     parser.add_argument(
