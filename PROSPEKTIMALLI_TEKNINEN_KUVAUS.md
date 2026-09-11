@@ -2,9 +2,9 @@
 
 ## 1. Tiivistelmä
 
-Prospektimalli on valvottu koneoppimismalli, joka etsii Profinderin yritysjoukosta nykyasiakasprofiilia muistuttavia yrityksiä. Malli opetetaan Innoflamen nykyasiakkaiden avulla ja pisteyttää sen jälkeen koko Profinder-yritysjoukon.
+Prospektimalli on valvottu koneoppimismalli, joka etsii uusimman Profinder-aineiston yritysjoukosta Innoflamen nykyasiakasprofiilia muistuttavia yrityksiä. Malli opetetaan Innoflamen nykyasiakkaiden ja päivitetyn myyntihistorian avulla ja pisteyttää sen jälkeen Profinder-yritysjoukon.
 
-Mallin päätulos on järjestetty prospektilista, ei binäärinen kyllä/ei-päätös. Korkea sijoitus tarkoittaa, että yritys muistuttaa mallin käyttämää parasta asiakasjoukkoa ja sillä on mallin mukaan korkeampi kaupallinen potentiaali.
+Mallin päätulos on järjestetty prospektilista, ei binäärinen kyllä/ei-päätös. Korkea sijoitus tarkoittaa, että yritys muistuttaa mallin käyttämää parasta asiakasjoukkoa ja sillä on mallin mukaan korkeampi kaupallinen potentiaali. Viimeisin toteutettu ajo tuotti 7 545 yrityksen mallilistan ennen erillisiä Netvisor- ja aiemman prospektilistan poistoja. Näiden liiketoimintasääntöjen jälkeen lopullinen uusi prospektilista sisältää 4 563 yritystä.
 
 ## 2. Käsittelyketju
 
@@ -21,11 +21,25 @@ Profinder-yritykset ─┘              │
                                     v
                          kaikkien yritysten score
                                     │
-                 nykyasiakkaat / konsernit / poistolistat pois
+                 nykyasiakkaat / konsernit / nimitermit pois
                                     │
                                     v
                 segmenttiarvo + baselinearvo -> potentiaali -> rank
+                                    │
+                                    v
+          Netvisor- ja aiemman prospektilistan jälkisuodatus
 ```
+
+### 2.1 Viimeisimmän ajon lähteet
+
+Uusimman toteutetun ajon käytetyt aineistot ovat:
+
+- Profinder: `haku_Prospektointimasterlista_2026-08-12.xlsx`
+- Asiakasrekisteri: `Account_20.05.2026_combined.xlsx` (ajossa käytetty paikallinen työskentelykopio)
+- Myyntihistoria: `prospektointi/sales_import_test/GoSystems_sales_26_05_2026_model_input_corrected.csv`
+- Netvisor-jälkisuodatus: `potentiaali/Netvisor asiakastiedot 6-2026_y_tunnukset_normalisoitu.xlsx`
+
+Profinder-aineistossa on 10 715 yksilöityä Y-tunnusta. Päivitetty myyntiaineisto on mallin aggregoitu syöte, jossa on 27 283 riviä, 4 844 asiakasta ja ajanjakso 2023-01–2026-08. Myyntisyötteessä ovat mukana L1-, L2- ja L3-tuoteryhmät sekä toimitus- ja käsittelymaksut.
 
 ## 3. Opetusjoukko
 
@@ -38,7 +52,7 @@ Opetukseen hyväksytään asiakasstatukset:
 - `Active`
 - `Gokeep+`
 
-Myyntihistoriasta käytetään viimeisen noin kolmen vuoden aikajaksoa. Asiakkaalle lasketaan:
+Myyntihistoriasta käytetään viimeisen noin kolmen vuoden aikajaksoa. Päivitetyn syötteen aikajakso on 2023-01–2026-08. Asiakkaalle lasketaan:
 
 ```text
 sales_3y_total_eur = viimeisen 3 vuoden myynti
@@ -78,7 +92,7 @@ Positiiviseksi luokaksi määritellään `top_n_customers`-parametrin mukainen j
 - `municipality`
 - `region`
 
-Liikevaihto luokitellaan luokkiin `0-1M`, `1-5M`, `5-20M`, `20-100M` ja `100M+`. Henkilöstö luokitellaan luokkiin `1-10`, `10-50`, `50-250`, `250-1000` ja `1000+`.
+Liikevaihto luokitellaan luokkiin `0-1M`, `1-5M`, `5-20M`, `20-100M` ja `100M+`. Henkilöstön numeeriset arvot luokitellaan luokkiin `1-10`, `10-50`, `50-250`, `250-1000` ja `1000+`. Profinderin tekstiluokat muunnetaan näin: `1-9` -> `1-10`, `10-19` ja `20-49` -> `10-50`, `50-99` ja `100-249` -> `50-250`, `250-499` ja `500-999` -> `250-1000`, ja `>999` -> `1000+`. Siksi Profinderin `20-49`-yritykset ovat mallissa mukana.
 
 Kasvuluokat ovat:
 
@@ -168,11 +182,11 @@ Yritys poistetaan prospektilistalta, jos jokin seuraavista täyttyy:
 
 - yritys löytyy nykyasiakkaan omalla Y-tunnuksella
 - yrityksen Y-tunnus löytyy emoyhtiö- tai konsernirajauksesta
-- Y-tunnus löytyy ulkoisesta poistolistasta
+- Y-tunnus löytyy ajon aikana käytetystä ulkoisesta poistolistasta
 - yrityksen nimessä on manuaalisesti poissuljettu termi, nykykoodissa `outokumpu`
 - yritykseltä puuttuu Y-tunnus tai yritysnimi
 
-Nykyisellä uusinta-ajolla lopullinen prospektimäärä oli 1 956.
+Viimeisimmässä Profinder-ajossa mallin oma tulos oli 7 545 yritystä. Netvisor-poisto tehtiin erillisenä jälkikäsittelynä. Y-tunnukset normalisoidaan ennen vertailua muotoon `1234567-8`; esimerkiksi `FI09508951` muuttuu muotoon `0950895-1`. Tämän jälkeen Netvisorissa olevat yritykset poistetaan. Kun lisäksi aiemmalla prospektilistalla olleet yritykset poistetaan, lopulliseen uuteen listaan jäi 4 563 yritystä. Lopullisen listan uudelleentarkistuksessa ei ollut yhtään normalisoidulla Y-tunnuksella löytynyttä Netvisor-osumaa.
 
 ## 8. Mallin validointi
 
@@ -193,15 +207,15 @@ Kuvaa mallin kykyä järjestää positiiviset yritykset negatiivisia korkeammall
 
 Kuvaa positiivisten yritysten löytymisen laatua erityisesti tilanteessa, jossa positiivinen luokka on vähemmistössä. Prospektoinnissa tämä on usein käytännöllinen lisämittari ROC-AUC:n rinnalle.
 
-Nykyisen uusinta-ajon mittarit:
+Viimeisimmän Profinder- ja päivitetyn myyntihistorian ajon mittarit:
 
-- ROC-AUC: 0,662
-- Average precision: 0,317
-- train-rivejä: 1 304
-- test-rivejä: 326
-- positiivinen osuus: 20,8 %
+- ROC-AUC: 0,7217
+- Average precision: 0,2807
+- train-rivejä: 1 994
+- test-rivejä: 499
+- positiivinen osuus: 15,3 %
 
-Mittarit kuvaavat mallin erottelukykyä testijaossa. Ne eivät kerro suoraan tulevan myynnin euroista.
+Mittarit kuvaavat mallin erottelukykyä testijaossa. Ne eivät kerro suoraan tulevan myynnin euroista. Netvisor- ja aiemman prospektilistan poistot tehdään score-laskennan jälkeen, joten yllä olevat mittarit kuvaavat mallia ennen näitä liiketoimintasuodattimia.
 
 ## 9. Mitä malli ei tee
 
@@ -224,3 +238,19 @@ Projektissa on myös muita, erillisiä mallikomponentteja:
 - `run_product_group_submodel.py`: tuoteryhmäkohtainen potentiaali- ja suosituslaskenta
 
 Tämä dokumentti kuvaa ensisijaisesti `prospect_model.py`-mallia ja sen tuottamaa prospektilistaa. Muita komponentteja ei pidä tulkita saman ajon sisäisiksi osiksi ilman erillistä konfiguraatio- ja versiontarkistusta.
+
+## 11. Uusimman ajon toteutusohje
+
+Uusi ajo toteutetaan seuraavassa järjestyksessä:
+
+1. Lue uusin Profinder-aineisto ja normalisoi Y-tunnukset.
+2. Lue asiakasrekisteri ja päivitetty aggregoitu myyntisyöte.
+3. Yhdistä asiakasrekisteri myyntiin `account_id`-avaimella ja yritysaineistot normalisoidulla Y-tunnuksella.
+4. Muodosta asiakaspiirteet, positiivinen luokka, segmenttilift, logistisen regression score, potentiaali ja rank.
+5. Poista nykyasiakkaat, konserniin kuuluvat yritykset, puuttuvan Y-tunnuksen tai nimen rivit sekä manuaaliset nimitermit.
+6. Vie mallin raakatulos erilliseen tiedostoon.
+7. Normalisoi Netvisorin Y-tunnukset samaan muotoon ja poista Netvisor-osumat.
+8. Poista tarvittaessa myös aiemman prospektilistan yritykset, jos tavoitteena on vain uudet prospektit.
+9. Tarkista lopputulos: rivimäärä, yksilöidyt Y-tunnukset, Netvisor-osumat ja puuttuvat avainkentät.
+
+Mallin tekninen suorituslogiikka on lähdekoodissa `prospektointi/prospect_model.py`. Tulosten jälkisuodatusta ja vertailua ei pidä yhdistää score-laskentaan, koska ne ovat erillisiä liiketoimintasääntöjä.
