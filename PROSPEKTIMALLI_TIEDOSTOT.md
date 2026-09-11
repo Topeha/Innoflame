@@ -8,6 +8,7 @@ Tämä dokumentti kuvaa mallin tarvitsemat tiedostot, niiden roolit, tärkeät s
 | --- | --- | --- |
 | `prospektointi/prospect_model.py` | Varsinainen pisteytys- ja potentiaalimalli | Kyllä |
 | `prospektointi/add_product_recommendations_to_prospects.py` | Lisää kaksi tuoteryhmä- ja esimerkkituotesuositusta olemassa olevaan prospektilistaan | Suositeltava jälkivaihe |
+| `prospektointi/build_prospect_reference_recommendations.py` | Laskee prospekteille kolme asiakasreferenssiä ja Top 5 -tuoteryhmäsuositukset | Suositeltava jälkivaihe |
 | `potentiaali/Account_20.05.2026_combined_with_profinder.xlsx` | GoSystemsin asiakasrekisteri ja asiakastilit | Kyllä |
 | `GoSystems_sales_26_05_2026_summarized.csv` | Korjattu GoSystems-myyntiaineisto | Kyllä, valmistelun lähde |
 | `prospektointi/sales_import_test/GoSystems_sales_26_05_2026_model_input_corrected.csv` | Mallin kuukausitason myyntisyöte | Kyllä |
@@ -19,6 +20,7 @@ Tämä dokumentti kuvaa mallin tarvitsemat tiedostot, niiden roolit, tärkeät s
 | `prospektointi/prospect_segment_model_all_prospects_latest_profinder_corrected_sales.metrics.json` | Uusimman mallin validointimittarit ja poistolaskurit | Tuloste |
 | `prospektointi/prospect_segment_model_all_prospects_final_without_netvisor.csv` | Uusi prospektilista Netvisor- ja aiemman listan poistoilla | Tuloste |
 | `prospektointi/prospect_segment_model_all_prospects_final_with_product_recommendations.csv` | Uusi prospektilista tuoteryhmä- ja esimerkkituotesuosituksilla | Tuloste |
+| `prospektointi/prospect_segment_model_final_with_references.csv` | Prospektien asiakasreferenssit, referenssien ostetut tuoteryhmät ja Top 5 -suositukset | Tuloste |
 | `prospektointi/prospect_segment_model_all_prospects_latest_profinder_without_netvisor_comparison.csv` | Yrityskohtainen vertailu vanhaan ajoon | Vertailutuloste |
 | `Innoflame_prospektimalli_uusinta_vertailu.xlsx` | Myynnin Excel-yhteenveto | Jakelutiedosto |
 | `Innoflame_prospektimalli_uusinta_vertailu.pptx` | Johtoryhmä- ja myyntiesitys | Jakelutiedosto |
@@ -158,6 +160,14 @@ python prospektointi\add_product_recommendations_to_prospects.py
 ```
 
 Komento tuottaa tiedoston `prospect_segment_model_all_prospects_final_with_product_recommendations.csv`. Suositusten laskenta käyttää nykyasiakkaiden segmenttikohtaista ostohistoriaa ja kaikkia tuoteryhmiä. `IF`- ja `DIF`-alkuisten tuotekoodien rajoitus koskee vain näytettävän esimerkkituotteen valintaa. Komento ei muuta prospektin scorea, potentiaalia, segmenttiä tai rankia. Esimerkkituotteen nimi ja koodi tallennetaan erikseen kenttiin `Suositus_Tuote_1` / `Suositus_Tuote_Koodi_1` ja `Suositus_Tuote_2` / `Suositus_Tuote_Koodi_2`.
+
+Prospektien asiakasreferenssit ja Top 5 -tuoteryhmäsuositukset muodostetaan komennolla:
+
+```powershell
+python prospektointi\build_prospect_reference_recommendations.py
+```
+
+Prosessi käyttää profiilivektoreissa Profinderin toimialaa, henkilöstöä, liikevaihtoa, liikevaihtoa per työntekijä, kasvua, yrityssegmenttiä ja sijaintia. Se laskee cosine similarity -arvon, yhdistää siihen vuosimyynnin ja ostettujen tuoteryhmien määrän referenssipisteeksi sekä jättää alkuperäiset score-, potentiaali- ja rank-kentät muuttamatta.
 
 Tärkeimmät kentät:
 
